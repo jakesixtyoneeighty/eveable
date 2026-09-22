@@ -14,56 +14,61 @@ type Finding = z.infer<typeof SecurityReviewResultSchema>["findings"][number];
 
 export default defineTool({
   description:
-    "Deterministically review generated source files after validation and preview pass. Use this release gate before deploy_to_vercel.",
+    "Deterministically review generated source files after validation and preview pass. Use this gate before save_project_version; publishing is separately authorized.",
   inputSchema,
   outputSchema: SecurityReviewResultSchema,
   async execute({ files }) {
-    const findings: Finding[] = [];
-    const reviewedFiles = files.map((file) => file.path);
-
-    for (const file of files) {
-      collectFileFindings(file, findings);
-    }
-
-    if (!files.some((file) => file.content.trim().length > 0)) {
-      findings.push({
-        severity: "medium",
-        category: "source-review",
-        file: null,
-        issue: "No readable generated source content was provided.",
-        evidence: "All reviewed file contents were empty.",
-        recommendation:
-          "Call read_generated_files with the generated file manifest before deployment.",
-      });
-    }
-
-    const blockingFindings = findings.filter((finding) =>
-      ["critical", "high", "medium"].includes(finding.severity),
-    );
-    const status =
-      blockingFindings.length > 0
-        ? ("needs_fixes" as const)
-        : ("passed" as const);
-
-    return {
-      agent: "security_review" as const,
-      status,
-      summary:
-        status === "passed"
-          ? "Deterministic security review passed. No blocking source, secret, unsafe HTML, command execution, form submission, or remote image policy issues were found."
-          : "Deterministic security review found fixable issues that should be patched before deployment.",
-      reviewedFiles,
-      findings,
-      hardeningNotes: [
-        "Keep generated forms as explicit no-op demos unless a server-side endpoint with validation is added.",
-        "Do not place real secrets in generated source, .env files, or NEXT_PUBLIC_* variables.",
-        "Keep remote image allowlists narrow and avoid wildcard hostnames.",
-        "Rerun validation, preview, and security review after any autofix.",
-      ],
-      nextAgent: status === "passed" ? ("complete" as const) : ("autofix" as const),
-    };
+    return reviewSource(files);
   },
 });
+
+export function reviewSource(files: z.infer<typeof GeneratedFileSchema>[]) {
+  const findings: Finding[] = [];
+  const reviewedFiles = files.map((file) => file.path);
+
+  for (const file of files) {
+    collectFileFindings(file, findings);
+  }
+
+  if (!files.some((file) => file.content.trim().length > 0)) {
+    findings.push({
+      severity: "medium",
+      category: "source-review",
+      file: null,
+      issue: "No readable generated source content was provided.",
+      evidence: "All reviewed file contents were empty.",
+      recommendation:
+        "Call read_generated_files with the generated file manifest before deployment.",
+    });
+  }
+
+  const blockingFindings = findings.filter((finding) =>
+    ["critical", "high", "medium"].includes(finding.severity),
+  );
+  const status =
+    blockingFindings.length > 0
+      ? ("needs_fixes" as const)
+      : ("passed" as const);
+
+  return {
+    agent: "security_review" as const,
+    status,
+    summary:
+      status === "passed"
+        ? "Deterministic security review passed. No blocking source, secret, unsafe HTML, command execution, form submission, or remote image policy issues were found."
+        : "Deterministic security review found fixable issues that should be patched before deployment.",
+    reviewedFiles,
+    findings,
+    hardeningNotes: [
+      "Keep generated forms as explicit no-op demos unless a server-side endpoint with validation is added.",
+      "Do not place real secrets in generated source, .env files, or NEXT_PUBLIC_* variables.",
+      "Keep remote image allowlists narrow and avoid wildcard hostnames.",
+      "Rerun validation, preview, and security review after any autofix.",
+    ],
+    nextAgent:
+      status === "passed" ? ("complete" as const) : ("autofix" as const),
+  };
+}
 
 function collectFileFindings(
   file: z.infer<typeof GeneratedFileSchema>,
@@ -84,12 +89,15 @@ function collectFileFindings(
     });
   }
 
-  if (/\bNEXT_PUBLIC_[A-Z0-9_]*(?:KEY|TOKEN|SECRET)[A-Z0-9_]*\b/.test(content)) {
+  if (
+    /\bNEXT_PUBLIC_[A-Z0-9_]*(?:KEY|TOKEN|SECRET)[A-Z0-9_]*\b/.test(content)
+  ) {
     findings.push({
       severity: "high",
       category: "client-secret-exposure",
       file: file.path,
-      issue: "A secret-like NEXT_PUBLIC_* variable appears in generated source.",
+      issue:
+        "A secret-like NEXT_PUBLIC_* variable appears in generated source.",
       evidence: "NEXT_PUBLIC variable name includes KEY, TOKEN, or SECRET.",
       recommendation:
         "Do not expose secret-bearing values to browser bundles. Route privileged work through server code.",
@@ -119,7 +127,8 @@ function collectFileFindings(
       category: "input-handling",
       file: file.path,
       issue: "A form may submit with the browser's implicit GET behavior.",
-      evidence: "A form tag was found without an explicit no-op onSubmit or POST method.",
+      evidence:
+        "A form tag was found without an explicit no-op onSubmit or POST method.",
       recommendation:
         "Use a no-op onSubmit for demo forms or a server-side POST handler with validation.",
     });

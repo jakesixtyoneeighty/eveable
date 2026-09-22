@@ -1,0 +1,1 @@
+ALTER TABLE "activity" ADD COLUMN "cursor" bigserial NOT NULL;

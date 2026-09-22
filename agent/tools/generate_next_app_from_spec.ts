@@ -1,3 +1,4 @@
+import { projectOperation, recordManifest } from "../lib/project.js";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 import {
@@ -70,6 +71,11 @@ export default defineTool({
   inputSchema,
   outputSchema: GeneratedAppBundleSchema,
   async execute({ spec: rawSpec }, ctx) {
+    const operation = await projectOperation(ctx, true);
+    if (operation?.op.baseVersionId)
+      throw new Error(
+        "Existing projects must use apply_project_changes, not regeneration.",
+      );
     const spec = normalizeImplementationSpec(rawSpec);
     const sandbox = await ctx.getSandbox();
     const projectSlug = slugify(spec.projectSlug || spec.brandName);
@@ -109,7 +115,8 @@ export default defineTool({
       },
       {
         path: "tsconfig.json",
-        purpose: "TypeScript configuration for a strict Next.js App Router app.",
+        purpose:
+          "TypeScript configuration for a strict Next.js App Router app.",
         content: JSON.stringify(
           {
             compilerOptions: {
@@ -128,7 +135,12 @@ export default defineTool({
               incremental: true,
               plugins: [{ name: "next" }],
             },
-            include: ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
+            include: [
+              "next-env.d.ts",
+              "**/*.ts",
+              "**/*.tsx",
+              ".next/types/**/*.ts",
+            ],
             exclude: ["node_modules"],
           },
           null,
@@ -139,12 +151,12 @@ export default defineTool({
         path: "next.config.ts",
         purpose: "Next.js config with a narrow remote image allowlist.",
         content: [
-          "import type { NextConfig } from \"next\";",
+          'import type { NextConfig } from "next";',
           "",
           "const nextConfig: NextConfig = {",
           "  images: {",
           "    remotePatterns: [",
-          "      { protocol: \"https\", hostname: \"images.unsplash.com\" },",
+          '      { protocol: "https", hostname: "images.unsplash.com" },',
           "    ],",
           "  },",
           "};",
@@ -182,6 +194,11 @@ export default defineTool({
         content: file.content,
       });
     }
+    await recordManifest(
+      sandbox,
+      files.map((file) => file.path),
+    );
+
     const validation = {
       commands: normalizeQualityCommands(files, qualityPlan),
       commandResults: [] as Array<ReturnType<typeof normalizeCommandResult>>,
@@ -234,7 +251,7 @@ export default defineTool({
     const probeResult = await sandbox.run({
       command: commandInGeneratedWorkspace(probeCommand),
     });
-    const previewOk = probeResult.exitCode === 0 || probeResult.exitCode === null;
+    const previewOk = probeResult.exitCode === 0;
 
     if (!previewOk && typeof processHandle.kill === "function") {
       await processHandle.kill();
@@ -242,11 +259,12 @@ export default defineTool({
 
     return {
       agent: "app_generator" as const,
-      status: previewOk ? ("preview_ready" as const) : ("preview_failed" as const),
-      message:
-        previewOk
-          ? "Generated, validated, and started the Next.js preview successfully."
-          : "Generated files validated, but preview health check failed.",
+      status: previewOk
+        ? ("preview_ready" as const)
+        : ("preview_failed" as const),
+      message: previewOk
+        ? "Generated, validated, and started the Next.js preview successfully."
+        : "Generated files validated, but preview health check failed.",
       sandboxId: sandbox.id,
       workspacePath: generatedWorkspacePath,
       files: manifestFiles(files),
@@ -264,7 +282,7 @@ export default defineTool({
         "Expand the compact implementation spec into a small Next.js file bundle.",
         "Files were written directly to /workspace/generated-app.",
         previewOk
-          ? "Call read_generated_files next, then security_review, then deploy_to_vercel."
+          ? "Call read_generated_files next, then security_review, then save_project_version. Publishing requires a separate web confirmation."
           : "Call autofix with the preview result, then validate and preview again.",
       ],
       nextRequiredTool: previewOk
@@ -312,7 +330,10 @@ function normalizeImplementationSpec(
     brandName,
     projectSlug,
     brief,
-    audience: normalizeText(raw.audience ?? raw.targetAudience, "Website visitors"),
+    audience: normalizeText(
+      raw.audience ?? raw.targetAudience,
+      "Website visitors",
+    ),
     visualDirection: normalizeVisualDirection(raw.visualDirection),
     sections: normalizeLooseSections(
       raw.sections,
@@ -347,7 +368,8 @@ function normalizeVisualDirection(
   value: string | Record<string, unknown> | undefined,
 ): string {
   if (typeof value === "string" && value.trim()) return value.trim();
-  if (!value) return "Modern, polished, responsive, accessible, and visually warm.";
+  if (!value)
+    return "Modern, polished, responsive, accessible, and visually warm.";
 
   const direction = asRecord(value) ?? {};
   const mood = normalizeText(direction.mood, "");
@@ -464,7 +486,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function buildProbeCommand(port: number): string {
   return [
     `for i in $(seq 1 60); do`,
-    `node -e "fetch('http://127.0.0.1:${port}').then(r=>process.exit(r.status < 500 ? 0 : 1)).catch(()=>process.exit(1))"`,
+    `node -e "fetch('http://127.0.0.1:${port}').then(r=>process.exit(r.ok ? 0 : 1)).catch(()=>process.exit(1))"`,
     "&& exit 0;",
     "sleep 2;",
     "done;",
@@ -488,9 +510,9 @@ function renderLayout(brandName: string, brief: string): string {
   const description = buildMetadataDescription(brandName, brief);
 
   return [
-    "import type { Metadata } from \"next\";",
-    "import type { ReactNode } from \"react\";",
-    "import \"./globals.css\";",
+    'import type { Metadata } from "next";',
+    'import type { ReactNode } from "react";',
+    'import "./globals.css";',
     "",
     "export const metadata: Metadata = {",
     `  title: ${JSON.stringify(`${brandName} | Boutique Plant Shop`)},`,
@@ -499,7 +521,7 @@ function renderLayout(brandName: string, brief: string): string {
     "",
     "export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {",
     "  return (",
-    "    <html lang=\"en\">",
+    '    <html lang="en">',
     "      <body>{children}</body>",
     "    </html>",
     "  );",
@@ -539,13 +561,17 @@ function renderPage(input: {
   const nav = ["Plants", "Care", "Hours", "Contact"];
 
   return [
-    "\"use client\";",
+    '"use client";',
     "",
-    "import type { FormEvent } from \"react\";",
-    "import { useState } from \"react\";",
+    'import type { FormEvent } from "react";',
+    'import { useState } from "react";',
     "",
     "const navItems = " + JSON.stringify(nav) + ";",
-    "const featuredPlants = " + JSON.stringify(featured.map(([name, detail, price]) => ({ name, detail, price }))) + ";",
+    "const featuredPlants = " +
+      JSON.stringify(
+        featured.map(([name, detail, price]) => ({ name, detail, price })),
+      ) +
+      ";",
     "const careTips = " + JSON.stringify(care) + ";",
     "const sections = " + JSON.stringify(sections.slice(0, 6)) + ";",
     "const gallery = " + JSON.stringify(images.slice(0, 5)) + ";",
@@ -560,49 +586,49 @@ function renderPage(input: {
     "",
     "  return (",
     "    <main>",
-    "      <header className=\"nav\">",
+    '      <header className="nav">',
     `        <a className=\"brand\" href=\"#top\">${escapeText(brandName)}</a>`,
-    "        <nav aria-label=\"Primary navigation\">",
+    '        <nav aria-label="Primary navigation">',
     "          {navItems.map((item) => <a key={item} href={`#${item.toLowerCase()}`}>{item}</a>)}",
     "        </nav>",
     "      </header>",
-    "      <section id=\"top\" className=\"hero\">",
+    '      <section id="top" className="hero">',
     "        <div>",
-    "          <p className=\"eyebrow\">Boutique plant shop</p>",
+    '          <p className="eyebrow">Boutique plant shop</p>',
     `          <h1>${escapeText(brandName)} grows calm, sculptural rooms.</h1>`,
     `          <p className=\"lede\">${escapeText(spec.brief)}</p>`,
-    "          <div className=\"actions\"><a href=\"#plants\">Shop plants</a><a href=\"#contact\">Plan a visit</a></div>",
+    '          <div className="actions"><a href="#plants">Shop plants</a><a href="#contact">Plan a visit</a></div>',
     "        </div>",
     `        <img src=\"${images[0]}\" alt=\"Layered indoor plants in a warm boutique shop\" />`,
     "      </section>",
-    "      <section id=\"plants\" className=\"section\">",
-    "        <div className=\"sectionHead\"><p className=\"eyebrow\">Featured plants</p><h2>Picked for real homes.</h2></div>",
-    "        <div className=\"cards\">{featuredPlants.map((plant) => <article className=\"card\" key={plant.name}><h3>{plant.name}</h3><p>{plant.detail}</p><strong>{plant.price}</strong></article>)}</div>",
+    '      <section id="plants" className="section">',
+    '        <div className="sectionHead"><p className="eyebrow">Featured plants</p><h2>Picked for real homes.</h2></div>',
+    '        <div className="cards">{featuredPlants.map((plant) => <article className="card" key={plant.name}><h3>{plant.name}</h3><p>{plant.detail}</p><strong>{plant.price}</strong></article>)}</div>',
     "      </section>",
-    "      <section id=\"care\" className=\"split\">",
-    "        <div><p className=\"eyebrow\">Care desk</p><h2>Simple advice before every plant leaves.</h2><ul>{careTips.map((tip) => <li key={tip}>{tip}</li>)}</ul></div>",
+    '      <section id="care" className="split">',
+    '        <div><p className="eyebrow">Care desk</p><h2>Simple advice before every plant leaves.</h2><ul>{careTips.map((tip) => <li key={tip}>{tip}</li>)}</ul></div>',
     `        <img src=\"${images[1]}\" alt=\"Hands arranging healthy green houseplants\" />`,
     "      </section>",
-    "      <section className=\"section details\">",
+    '      <section className="section details">',
     "        {sections.map((section) => <article key={section.name}><h3>{section.name}</h3><p>{section.copy}</p></article>)}",
     "      </section>",
-    "      <section className=\"gallery\" aria-label=\"Plant shop gallery\">",
+    '      <section className="gallery" aria-label="Plant shop gallery">',
     "        {gallery.map((src, index) => <img src={src} alt={`Moss and Circuit plant gallery ${index + 1}`} key={src} />)}",
     "      </section>",
-    "      <section id=\"hours\" className=\"split hours\">",
-    "        <div><p className=\"eyebrow\">Opening hours</p><h2>Visit the greenhouse counter.</h2><p>Tue-Fri 10-7, Sat-Sun 9-5, Monday by appointment.</p></div>",
-    "        <div className=\"note\"><strong>Free repotting clinic</strong><span>Every Saturday morning with any plant purchase.</span></div>",
+    '      <section id="hours" className="split hours">',
+    '        <div><p className="eyebrow">Opening hours</p><h2>Visit the greenhouse counter.</h2><p>Tue-Fri 10-7, Sat-Sun 9-5, Monday by appointment.</p></div>',
+    '        <div className="note"><strong>Free repotting clinic</strong><span>Every Saturday morning with any plant purchase.</span></div>',
     "      </section>",
-    "      <section id=\"contact\" className=\"contact\">",
-    "        <div><p className=\"eyebrow\">Contact</p><h2>Ask about availability or care.</h2></div>",
-    "        <form onSubmit={handleContactSubmit} noValidate aria-label=\"Contact Moss and Circuit\">",
-    "          <label className=\"srOnly\" htmlFor=\"contact-name\">Name</label>",
-    "          <input id=\"contact-name\" name=\"name\" placeholder=\"Name\" autoComplete=\"name\" required />",
-    "          <label className=\"srOnly\" htmlFor=\"contact-email\">Email</label>",
-    "          <input id=\"contact-email\" name=\"email\" type=\"email\" placeholder=\"Email\" autoComplete=\"email\" required />",
-    "          <label className=\"srOnly\" htmlFor=\"contact-message\">Message</label>",
-    "          <textarea id=\"contact-message\" name=\"message\" placeholder=\"What are you looking for?\" required />",
-    "          <button type=\"submit\">Send inquiry</button>",
+    '      <section id="contact" className="contact">',
+    '        <div><p className="eyebrow">Contact</p><h2>Ask about availability or care.</h2></div>',
+    '        <form onSubmit={handleContactSubmit} noValidate aria-label="Contact Moss and Circuit">',
+    '          <label className="srOnly" htmlFor="contact-name">Name</label>',
+    '          <input id="contact-name" name="name" placeholder="Name" autoComplete="name" required />',
+    '          <label className="srOnly" htmlFor="contact-email">Email</label>',
+    '          <input id="contact-email" name="email" type="email" placeholder="Email" autoComplete="email" required />',
+    '          <label className="srOnly" htmlFor="contact-message">Message</label>',
+    '          <textarea id="contact-message" name="message" placeholder="What are you looking for?" required />',
+    '          <button type="submit">Send inquiry</button>',
     "          <p className=\"formStatus\" aria-live=\"polite\">{submitted ? 'Thanks. This demo form is ready for a server-side integration.' : 'This demo does not transmit personal data yet.'}</p>",
     "        </form>",
     "      </section>",
@@ -660,7 +686,9 @@ function normalizeSections(
 }
 
 function normalizeImages(images: string[]): string[] {
-  const valid = images.filter((image) => /^https:\/\/images\.unsplash\.com\//.test(image));
+  const valid = images.filter((image) =>
+    /^https:\/\/images\.unsplash\.com\//.test(image),
+  );
   return [...valid, ...defaultImages].slice(0, 5);
 }
 

@@ -1,570 +1,254 @@
 # Eveable
 
-Eveable is an open-source alternative to Lovable built on Vercel Eve. It turns a prompt into a complete Next.js application, validates it in an Eve sandbox, starts a live preview, runs a security review, deploys to Vercel, and returns a verified deployment URL.
+Eveable is an open-source, Lovable-style website builder built on Vercel Eve.
+Its web workspace lets invited members discuss a design, approve a build or
+edit, inspect saved source versions, open an isolated preview, and explicitly
+publish a version to Vercel. Generated Next.js applications are outputs, not the
+source of Eveable's own frontend.
 
-Eveable began as a standalone Eve-powered implementation of the existing `jaxagentsdk` builder pipeline. The NestJS `jaxagentsdk` remains untouched, so developers can compare the original architecture with a filesystem-first Eve implementation.
-
-## Why Eveable
-
-- **Built on Vercel Eve:** durable sessions, streamable runs, subagents, tools, human approval, and sandbox access come from Eve.
-- **Real builder pipeline:** Eveable does not stop after writing files. It validates, previews, reviews, deploys, and verifies.
-- **Open architecture:** each specialist is a folder under `agent/subagents/`, each integration is a typed Eve tool under `agent/tools/`.
-- **Sandbox-first generation:** generated projects are written to `/workspace/generated-app`, not into the repository.
-- **Refero-grounded design research:** the design research subagent can use Refero MCP for real visual references before approval.
-- **Vercel deployment:** validated apps are deployed through `deploy_to_vercel` when `VERCEL_TOKEN` is configured.
-
-## Current Version
-
-Current release: `1.0.0`
-
-The v1 release includes root orchestration, seven declared subagents, typed shared schemas, sandbox validation, preview health checks, Vercel deployment, CI, release packaging, and smoke tests.
+Version: `1.0.0`. The frontend implementation is included; hosted acceptance and
+production rollout require the service setup below. Local fixtures are not
+proof of live provider behavior. See [FRONTEND_ACCEPTANCE.md](FRONTEND_ACCEPTANCE.md)
+for completed local checks and the outstanding hosted acceptance gates.
 
 ## Architecture
 
-Eve is filesystem-first: an agent is a directory of instructions, tools, channels, sandbox config, shared code, and subagents. Eveable follows that shape closely.
+- `apps/web`: Next.js App Router application, Clerk sign-in, project APIs,
+  sanitized NDJSON activity, Workflow jobs, and the isolated preview gateway.
+- `agent`: existing Eve runtime, specialist subagents, narrow sandbox tools,
+  design approvals, source-aware editing, validation, and version capture.
+- `packages/core`: shared Drizzle/Postgres schema, ownership and operation
+  admission, source archives, runtime authentication, preview and release adapters.
+- `tests`: contract tests, disposable Postgres integration tests, browser component
+  acceptance fixtures, and opt-in hosted acceptance.
 
 ```mermaid
-flowchart TD
-  User["Client / Eve TUI"]
-  Session["POST /eve/v1/session"]
-  Stream["GET /eve/v1/session/:id/stream"]
-  Root["Eveable Root Agent"]
-
-  User --> Session
-  Session --> Stream
-  Session --> Root
-
-  Root --> Intent["intent subagent"]
-
-  Intent -->|"unsafe"| Refusal["conversation refusal"]
-  Intent -->|"conversation"| Conversation["conversation subagent"]
-  Intent -->|"build / edit"| Orchestrator["orchestrator subagent"]
-
-  Orchestrator --> Design["design_research subagent"]
-  Design --> Refero["Refero MCP connection\noptional design inspiration"]
-  Refero --> Design
-  Design --> Approval["ask_question design approval"]
-
-  Approval -->|"Revise design"| Design
-  Approval -->|"Stop"| Conversation
-  Approval -->|"Approve one-page site"| Generator["generate_next_app_from_spec tool"]
-  Approval -->|"Approve complex app"| CodeWriter["code_writer subagent"]
-
-  CodeWriter --> Spec["compact ImplementationSpec"]
-  Spec --> Generator
-
-  Generator --> Write["write files to /workspace/generated-app"]
-  Write --> Validate["install + typecheck + build"]
-  Validate -->|"failed"| Autofix["autofix subagent"]
-  Validate -->|"passed"| Preview["start sandbox preview"]
-  Preview -->|"failed"| Autofix
-  Preview -->|"healthy"| ReadSource["read_generated_files tool"]
-
-  Autofix --> Generator
-
-  ReadSource -->|"source missing"| UserAction["user action required"]
-  ReadSource -->|"source ready"| Security["run_security_review tool"]
-
-  Security -->|"needs fixes"| Autofix
-  Security -->|"blocked"| UserAction
-  Security -->|"passed"| Deploy["deploy_to_vercel tool"]
-
-  Deploy -->|"app issue"| Autofix
-  Deploy -->|"missing Vercel config"| UserAction
-  Deploy -->|"verified URL"| Final["conversation final summary"]
+flowchart LR
+  Browser --> Web[Next.js + Clerk]
+  Web --> DB[Neon: members, projects, operations, versions]
+  Web --> Jobs[Durable Workflow jobs]
+  Jobs --> Eve[Eve session API]
+  Eve --> Sandbox[Generated app sandbox]
+  Eve --> DB
+  Eve --> Blob[Private source archives]
+  Jobs --> Preview[Private preview sandbox]
+  Browser --> Gateway[Isolated preview origin]
+  Gateway -->|authenticated SDK; no exposed ports| Preview
+  Jobs -->|explicit Publish only| Vercel[Dedicated generated-app project]
 ```
 
-## Pipeline Guarantees
+Deploy the frontend and runtime as **separate Vercel projects**. The preview
+wildcard domain routes to the web deployment, but is a separate browser origin.
+Every generated customer application gets its own Vercel project.
 
-Eveable is intentionally strict about what counts as complete:
-
-1. The root agent must call `intent` first for every user message.
-2. Unsafe prompts are refused before builder subagents run.
-3. Build prompts go through `orchestrator` and `design_research`.
-4. `design_research` uses Refero MCP when configured, but continues with internal design judgment if Refero is unavailable.
-5. Code generation pauses for user approval through Eve's `ask_question`.
-6. Normal one-page websites use the deterministic `generate_next_app_from_spec` fast path.
-7. Generated files are written only under `/workspace/generated-app`.
-8. Finite quality commands run before any preview or deployment.
-9. Source files are read back from the sandbox before security review.
-10. Build, preview, security, and deployment failures route through `autofix` when repairable.
-11. A final "ready" or "deployed" response is allowed only after:
-   - quality commands pass
-   - preview health check passes
-   - security review passes
-   - Vercel deployment returns and verifies a URL
-
-## Repository Layout
-
-```text
-.
-├── agent/
-│   ├── agent.ts
-│   ├── instructions.md
-│   ├── channels/
-│   │   └── eve.ts
-│   ├── lib/
-│   │   ├── model.ts
-│   │   ├── sandbox.ts
-│   │   └── schemas.ts
-│   ├── sandbox/
-│   │   └── sandbox.ts
-│   ├── subagents/
-│   │   ├── autofix/
-│   │   ├── code_writer/
-│   │   ├── conversation/
-│   │   ├── design_research/
-│   │   │   └── connections/
-│   │   │       └── refero.ts
-│   │   ├── intent/
-│   │   ├── orchestrator/
-│   │   └── security_review/
-│   └── tools/
-│       ├── deploy_to_vercel.ts
-│       ├── read_generated_files.ts
-│       ├── run_quality_commands.ts
-│       ├── start_preview.ts
-│       ├── write_generated_files.ts
-│       ├── bash.ts
-│       └── write_file.ts
-├── scripts/
-│   ├── package-release.sh
-│   └── smoke.mjs
-├── .github/workflows/
-│   ├── ci.yml
-│   └── release.yml
-├── env.sample
-├── CONTRIBUTING.md
-├── SECURITY.md
-└── README.md
-```
-
-## Key Files
-
-| File | Purpose |
-| --- | --- |
-| `agent/instructions.md` | Root orchestration contract and completion rules. |
-| `agent/agent.ts` | Root Eve model configuration. |
-| `agent/lib/model.ts` | Role-based model selection through env vars. |
-| `agent/lib/schemas.ts` | Zod schemas for structured handoffs and tool results. |
-| `agent/lib/sandbox.ts` | Safe path handling, command normalization, redaction, and sandbox helpers. |
-| `agent/sandbox/sandbox.ts` | Eve `defaultBackend()` sandbox setup. |
-| `agent/channels/eve.ts` | Public Eve session/stream entrypoint. |
-| `agent/subagents/design_research/connections/refero.ts` | Optional Refero MCP connection used only by the design research subagent. |
-| `agent/tools/write_generated_files.ts` | Writes generated app files into `/workspace/generated-app`. |
-| `agent/tools/run_quality_commands.ts` | Runs finite install/typecheck/build commands. |
-| `agent/tools/start_preview.ts` | Starts preview, tries safe Next.js fallback commands, and verifies HTTP health inside the sandbox. |
-| `agent/tools/read_generated_files.ts` | Reads generated source back from the sandbox for security review. |
-| `agent/tools/run_security_review.ts` | Deterministically checks generated source for release-blocking security issues. |
-| `agent/tools/deploy_to_vercel.ts` | Deploys the generated app to Vercel and verifies the URL. |
-| `scripts/smoke.mjs` | Static project-shape checks used by CI. |
-
-## Subagents
-
-| Subagent | Responsibility |
-| --- | --- |
-| `intent` | Classifies the request, rejects unsafe work, and chooses the next route. |
-| `conversation` | Writes user-facing chat, refusals, approval summaries, and final summaries. |
-| `orchestrator` | Converts a safe build request into a concise internal plan. |
-| `design_research` | Produces the approval-ready design direction and implementation brief. Uses Refero MCP for style and screen inspiration when configured. |
-| `code_writer` | Generates a full Next.js TypeScript App Router project. |
-| `autofix` | Repairs generated files after build, preview, security, or deployment failures. |
-| `security_review` | Optional model-backed deeper review agent; the deploy gate uses `run_security_review` for deterministic structured output. |
-
-## Tools
-
-Eveable uses narrow local Eve tools instead of broad shell/file access:
-
-| Tool | Scope |
-| --- | --- |
-| `write_generated_files` | Writes only safe relative paths under `/workspace/generated-app`. |
-| `run_quality_commands` | Runs finite commands only. Preview/server commands are filtered out. |
-| `start_preview` | Starts the generated app preview, falls back to known Next.js start/dev commands, and probes `http://127.0.0.1:<port>`. |
-| `read_generated_files` | Reads generated source files from `/workspace/generated-app` before security review. |
-| `deploy_to_vercel` | Runs Vercel CLI from the generated workspace and verifies the returned URL. |
-| `search_unsplash_images` | CodeWriter-local image search using optional Unsplash credentials. |
-
-`bash.ts` and `write_file.ts` are present as disabled broad tools. Keep them disabled unless you are intentionally changing the trust model.
-
-## MCP Connections
-
-Eveable v1 keeps MCP usage narrow. The only authored MCP connection is Refero,
-and it is scoped to `agent/subagents/design_research/` so code generation,
-autofix, deployment, and security review do not inherit it.
-
-| Connection | Location | Purpose | Required env |
-| --- | --- | --- | --- |
-| `refero` | `agent/subagents/design_research/connections/refero.ts` | Search curated styles and real web UI screen references before design approval. | Optional `REFERO_API_KEY` or `REFERO_MCP_TOKEN` |
-
-The design researcher asks Eve's `connection__search` for Refero tools, then
-uses style references first and screen references only when the build needs a
-concrete UI pattern. If Refero is missing, unauthenticated, or has no useful
-matches, the subagent sets `referoMcpUsed=false` and continues without blocking
-the build.
-
-## Generated Code Location
-
-Generated applications are stored in the Eve sandbox:
-
-```text
-/workspace/generated-app
-```
-
-The generated code is not written into this repository. To inspect it, watch the Eve stream/dev TUI tool results for:
-
-- `write_generated_files`
-- `run_quality_commands`
-- `start_preview`
-- `deploy_to_vercel`
-
-Those results include the `sandboxId`, `workspacePath`, generated file list, command results, preview port, and Vercel deployment URL.
+Eve owns session execution and durable event history. Neon stores account-owned
+project metadata and safe projections. Continuation tokens never reach browser
+code. Runtime event handlers persist progress even after the browser closes;
+a durable reconciliation job replays missed events.
 
 ## Requirements
 
-- Node.js `>=24 <27`
+- Node.js `>=24 <27` (CI uses Node 24)
 - pnpm `11.5.0`
-- Vercel Eve `0.11.4`
-- Vercel CLI available locally or installable through `npx`
+- Eve `0.11.4` and AI SDK `7.0.0-beta.178` remain pinned in the lockfile
+- Clerk, Neon Postgres, private Vercel Blob, Vercel Sandbox, and a managed Vercel team
 
-## Environment
+Install with `pnpm install --frozen-lockfile`. Do not use npm to manage this repository.
 
-Copy `env.sample` to `.env.local`:
+## Configuration
 
-```bash
-cp env.sample .env.local
-```
+`env.sample` is the canonical list of settings. Copy the relevant settings to
+root `.env.local` for the runtime and `apps/web/.env.local` for Next.js. Keep all
+secrets out of version control. Only Clerk's publishable key is browser-public.
 
-Minimum local model setup:
-
-```bash
-AI_GATEWAY_API_KEY=...
-```
-
-Deployment setup:
-
-```bash
-VERCEL_TOKEN=...
-```
-
-Create a Vercel token from **Vercel Dashboard -> Account Settings -> Tokens**.
-For local development, save it in `.env.local`:
-
-```bash
-VERCEL_TOKEN=...
-VERCEL_SCOPE=your-team-or-username
-VERCEL_PROJECT_NAME=eveable-generated-apps
-```
-
-`pnpm run dev` loads `.env.local` for Eveable, but your shell does not
-automatically load it for direct CLI commands. If you want to run Vercel CLI
-commands with the token from your terminal, source the file first:
-
-```bash
-set -a
-source .env.local
-set +a
-
-vercel whoami --token "$VERCEL_TOKEN"
-```
-
-If `vercel whoami --token "$VERCEL_TOKEN"` says the token is missing, your shell
-has not loaded `.env.local`; the file may still be correct.
-
-To discover the correct scope:
-
-```bash
-vercel whoami
-```
-
-Use the active team slug or username as `VERCEL_SCOPE`. For example:
-
-```bash
-VERCEL_SCOPE=mordules-projects
-```
-
-Optional deployment controls:
-
-```bash
-VERCEL_PROJECT_NAME=...
-VERCEL_SCOPE=...
-EVEABLE_DEPLOY_ENV_ALLOWLIST=...
-```
-
-Optional generation integrations:
-
-```bash
-UNSPLASH_ACCESS_KEY=...
-UNSPLASH_API_BASE_URL=https://api.unsplash.com
-
-REFERO_MCP_URL=https://api.refero.design/mcp
-REFERO_API_KEY=...
-# or, if your secret is named this way:
-REFERO_MCP_TOKEN=...
-
-INSFORGE_API_BASE_URL=...
-INSFORGE_API_KEY=...
-```
-
-Refero is used only for design inspiration in the `design_research` subagent.
-Do not commit Refero keys. Put them in `.env.local` for local development or in
-your deployed Eveable project environment.
-
-`EVEABLE_ROOT_MODEL` replaces the older `MAYAR_ROOT_MODEL`; the runtime still accepts `MAYAR_ROOT_MODEL` as a fallback. `EVEABLE_DEPLOY_ENV_ALLOWLIST` replaces `MAYAR_DEPLOY_ENV_ALLOWLIST`; that older key is also still accepted as a fallback.
-
-Never commit real `.env.local` values. Generated apps must not receive real secrets in source files or generated `.env.local` files.
-
-## Model Configuration
-
-Eveable can use different models per role.
-
-| Role | Env var | Default |
+| Settings | Runtime | Web |
 | --- | --- | --- |
-| Root | `EVEABLE_ROOT_MODEL` | `openai/gpt-5.4-mini` |
-| Intent | `INTENT_AGENT_MODEL` | `openai/gpt-5.4-mini` |
-| Orchestrator | `ORCHESTRATOR_AGENT_MODEL` | `openai/gpt-5.4-mini` |
-| Design Research | `DESIGN_RESEARCH_AGENT_MODEL` | `openai/gpt-5.4-mini` |
-| Code Writer | `CODE_WRITER_AGENT_MODEL` | `openai/gpt-5.4` |
-| Autofix | `AUTOFIX_AGENT_MODEL` | `openai/gpt-5.4-mini` |
-| Security Review | `SECURITY_REVIEW_AGENT_MODEL` | `openai/gpt-5.4-mini` |
-| Conversation | `CONVERSATION_AGENT_MODEL` | `openai/gpt-5.4-mini` |
+| `DATABASE_URL` | Yes | Yes |
+| `EVEABLE_RUNTIME_SECRET` | Yes | Yes, identical value |
+| `BLOB_READ_WRITE_TOKEN` | Yes | Yes, same private store |
+| `AI_GATEWAY_API_KEY` and model overrides | Yes | No |
+| Refero MCP / Unsplash credentials | Optional | No |
+| `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `CLERK_SECRET_KEY` | No | Yes |
+| `APP_ORIGIN`, `EVE_RUNTIME_ORIGIN` | No | Yes |
+| `PREVIEW_ORIGIN`, `EVEABLE_PREVIEW_SECRET` | No | Yes |
+| `VERCEL_TOKEN`, `VERCEL_TEAM_ID` | No | Yes |
+| Sandbox authentication (`VERCEL_OIDC_TOKEN`, or supported SDK token credentials) | Hosted/runtime-specific | Yes |
 
-Use Vercel AI Gateway model ids, including provider prefixes such as `openai/gpt-5.4-mini`.
-The defaults keep routing, research, review, and chat on mini, while CodeWriter
-uses standard `openai/gpt-5.4` for larger structured code output. You can still
-assign stronger, cheaper, or provider-specific models per role through the env
-vars above.
+Generate independent random signing secrets with at least 32 characters. Use
+separate secrets and databases for development, staging, and production.
+Do not provide Eveable's credentials as generated-app environment variables.
+The legacy `VERCEL_PROJECT_NAME`, `VERCEL_SCOPE`, and deployment environment
+allowlist no longer control publishing.
 
-## Install
+### Membership and authentication
 
-```bash
-pnpm install --frozen-lockfile
-```
+1. Configure Clerk invite-only registration and verified email sign-in.
+2. Configure sign-in/sign-up URLs for `/sign-in` and `/sign-up`.
+3. Apply the database migration to the intended development/staging database:
+   `pnpm db:migrate` (reads root `.env.local`).
+4. Invite a user through Clerk and obtain their Clerk user ID.
+5. Run `pnpm member:provision user_…`. Revoke with `pnpm member:revoke user_…`.
 
-## Run Locally
+A Clerk account or invitation alone is not authorization. Every protected
+request requires active database membership and project ownership. Revocation
+also denies preview requests and subsequent privileged workflow actions.
 
-Start Eve in API server mode:
+### Preview domain
 
-```bash
-pnpm run dev
-```
+Set `APP_ORIGIN=https://builder.example.com` and
+`PREVIEW_ORIGIN=https://preview.example.net`. Configure a wildcard
+`*.preview.example.net` on the **web** Vercel project with TLS. Do not put the
+builder's session cookies on the preview domain.
 
-`pnpm run dev` starts Eve with `--no-ui`, hidden subagent streams, and collapsed
-tool calls. That is the recommended mode for Eveable because the builder can
-generate large source payloads and the interactive TUI can repaint those events
-heavily. To use Eve's interactive terminal UI, run:
+For local HTTP use `APP_ORIGIN=http://localhost:3000` and
+`PREVIEW_ORIGIN=http://preview.localhost:3000`; configure local wildcard DNS if
+your browser/resolver does not resolve `*.localhost` to loopback. Hosted
+acceptance must use HTTPS, including partitioned secure preview cookies.
 
-```bash
-pnpm run dev:tui
-```
+Each preview uses a unique host, a short-lived access grant, and a sandbox with
+**no exposed network ports**. The gateway checks membership and fetches bounded
+HTTP responses through the Sandbox SDK. Generated code receives no platform
+credentials or builder cookies. This first release supports HTTP previews, not
+WebSockets or hot module reload. Responses are limited to 8 MB and request
+bodies to 1 MB. Sandboxes expire after a bounded 20-minute lifetime; restarting
+materializes the saved artifact again. Opening a preview requires Vercel Sandbox
+credentials even when the frontend runs locally.
 
-To debug every child-agent payload and tool argument, use:
+### Publishing setup
 
-```bash
-pnpm run dev:verbose
-```
+The web project holds the managed team's `VERCEL_TOKEN` and `VERCEL_TEAM_ID`.
+Publishing creates a project named `eveable-<project UUID>`, uploads the approved
+immutable source, verifies its preview deployment, promotes it, then verifies
+the observed production alias. The UI records success only after verification.
 
-## How To Prompt Eveable
+Generated projects must have no configured or shared environment variables.
+Do not attach platform integrations or secrets to them. Deployment protection
+must allow the verification service to reach candidate URLs; otherwise
+publishing fails closed before promotion. Project-level OIDC is disabled on
+new generated-app projects. No provider secrets are sent with deployment files.
 
-`pnpm run dev` runs Eveable in API server mode, so you do not type prompts into
-the terminal that is running the server. Keep that terminal open, then send
-messages from a second terminal, script, or UI client.
-
-The local Eve API is available at:
-
-```text
-http://127.0.0.1:2000/eve/v1/session
-```
-
-Start a session from a second terminal:
-
-```bash
-curl -sS -X POST http://127.0.0.1:2000/eve/v1/session \
-  -H "content-type: application/json" \
-  -d '{"message":"Build a polished one-page website for a boutique plant shop called Moss & Circuit. Include a strong hero, featured plant cards, care tips, opening hours, a small gallery with realistic plant imagery, and a contact form. Make it responsive, modern, warm but not beige-heavy, and ready to preview and deploy."}'
-```
-
-The response includes a `sessionId` and `continuationToken`:
-
-```json
-{
-  "continuationToken": "eve:...",
-  "ok": true,
-  "sessionId": "wrun_..."
-}
-```
-
-Creating a session only starts the run and returns identifiers. It does not
-print the event stream in the same terminal response. Use the returned
-`sessionId` in a separate stream request:
+## Local development
 
 ```bash
-curl -N http://127.0.0.1:2000/eve/v1/session/wrun_.../stream
+pnpm dev          # Eve API, normally http://127.0.0.1:2000
+pnpm web:dev      # Next.js, http://localhost:3000 (second terminal)
 ```
 
-The stream is newline-delimited JSON. For a more readable local view, pipe it
-through `jq`:
+Set `EVE_RUNTIME_ORIGIN=http://127.0.0.1:2000` for the web server. Authentication
+between web and Eve uses signed requests even locally. Missing configuration
+shows a setup screen rather than fictional project data.
+
+`pnpm dev:tui` retains Eve's terminal interface, and `pnpm dev:verbose` shows
+full developer diagnostics. To intentionally enable local curl/TUI access, set
+`EVEABLE_ALLOW_LOCAL_TUI=true` in root `.env.local`. It is ignored when
+`NODE_ENV=production`; deployed session routes require application authorization.
+
+The Eve dev scripts still clear `.eve`, `.output`, and `.workflow-data` on
+restart. **That invalidates local Eve session handles.** Local projects and
+source archives remain in application storage; start a new session after a
+runtime cache reset. Do not treat local workflow files as production storage.
+
+With explicit local TUI access enabled, start and resume sessions as before:
 
 ```bash
-curl -N http://127.0.0.1:2000/eve/v1/session/wrun_.../stream \
-  | jq -c 'select(.type=="message.completed" or .type=="input.requested" or .type=="actions.requested" or .type=="action.result" or .type=="session.waiting")'
-```
-
-Stream a session:
-
-```bash
+curl -X POST http://127.0.0.1:2000/eve/v1/session \
+  -H 'content-type: application/json' -d '{"message":"Build a small studio website"}'
 curl -N http://127.0.0.1:2000/eve/v1/session/<sessionId>/stream
-```
-
-When the stream reaches the design approval checkpoint, approve the build with
-the same `sessionId` and `continuationToken`:
-
-```bash
-curl -sS -X POST http://127.0.0.1:2000/eve/v1/session/<sessionId> \
-  -H "content-type: application/json" \
+curl -X POST http://127.0.0.1:2000/eve/v1/session/<sessionId> \
+  -H 'content-type: application/json' \
   -d '{"continuationToken":"<continuationToken>","message":"Approve and build"}'
 ```
 
-Then keep streaming the same session:
+TUI builds can validate a local sandbox preview. They do not impersonate a web
+project, save managed versions, or deploy from inside the sandbox.
+
+## Builder contract
+
+1. Every non-approval request calls `intent` first, alone. Subagent calls have
+   exactly one input key: `message`.
+2. Builds and edits pass through planning/design research and explicit approval:
+   **Approve and build**, **Revise design**, or **Stop**. Refero MCP stays scoped
+   to design research and is optional.
+3. New ordinary one-page sites use `generate_next_app_from_spec`. Complex build
+   requests use a compact CodeWriter ImplementationSpec; arbitrary full-stack
+   app generation is not promised.
+4. Edits read the saved source and apply changes to specified files. They do not
+   regenerate the whole project or remove unrelated files.
+5. Generated writes stay under `/workspace/generated-app`. Broad `bash` and
+   file tools remain disabled. Quality commands are finite.
+6. Quality checks, healthy internal preview, source readback, deterministic
+   security review, and independent version verification precede **Ready to preview**.
+7. Source versions are immutable private archives. A restore creates a new
+   checked version; it does not alter history or publish automatically.
+8. **Published** requires a separate, authenticated confirmation for the exact
+   version/hash and a verified production URL. The agent deployment tool cannot
+   use Vercel credentials or bypass this confirmation.
+
+Repair loops remain bounded. A failed change retains the previous saved version.
+The preview, current saved version, and published version are separate concepts.
+
+## Limits and recovery
+
+Defaults: one active modifying operation per project, one active build/edit per
+user, 20 new message/restore starts per user per UTC day, and 10 publish starts
+per day. Message admission is counted before intent classification, so normal
+chat also consumes a start. Approval continuations do not consume another start.
+Limits are configurable and are not dollar-spend guarantees.
+
+Idempotency keys prevent duplicate submissions. Ambiguous workflow dispatch or
+deployment submission is retained for operator reconciliation rather than
+blindly dispatched again. Inspect Workflow and Eve run state before releasing
+an uncertain operation. Closing the browser does not cancel an active run.
+
+If production verification fails after promotion, Eveable attempts to restore and
+verify the previous release. Uncertain promotion or rollback blocks further
+publishing, while editing remains available. Inspect the Vercel destination, then
+run `pnpm release:reconcile <operation-id>` to verify the actual production target
+and update its record. This command does not initiate another deployment.
+
+## Validation
 
 ```bash
-curl -N http://127.0.0.1:2000/eve/v1/session/<sessionId>/stream
+pnpm ci                 # production audit + runtime typecheck/build + smoke
+pnpm web:ci             # frontend lint/typecheck + unit tests + web build
+pnpm test:integration   # disposable local Postgres, real queries, mocked providers
+pnpm web:e2e            # desktop/mobile browser tests using component/API fixtures
 ```
 
-If you prefer an interactive terminal prompt instead of API mode, run:
+The integration runner requires local PostgreSQL executables, or an explicitly
+supplied `EVEABLE_TEST_DATABASE_URL` whose database name is `eveable_test`.
+It resets that test database. It never uses `DATABASE_URL` as a test target.
+Install Chromium with `pnpm exec playwright install chromium` if needed.
 
-```bash
-pnpm run dev:tui
-```
+Hosted acceptance uses `E2E_BASE_URL`, `E2E_STORAGE_STATE`, and
+`E2E_LIVE_BUILD=true`; run `pnpm web:e2e:live`. It exercises real services and can
+incur model/sandbox charges. Public publishing is a separate opt-in test using
+`E2E_ALLOW_PUBLISH=true`. Never use a production account/session fixture in CI.
 
-API mode is the recommended default because Eveable can emit large tool and
-subagent events during generation, validation, preview, security review, and
-deployment.
+Local checks, mocked providers, authenticated hosted acceptance, and billed
+provider usage must be reported separately. A frontend build does not establish
+live sign-in, sandbox availability, or deployment success.
 
-If Eve dev reports stale workflow cache errors after edits, restart with a clean cache:
+## Deployment and release
 
-```bash
-rm -rf .eve .output .workflow-data
-pnpm run dev
-```
+- Runtime: root directory `.`, `pnpm build`, Eve runtime output.
+- Web: root directory `apps/web`, Next.js build; include workspace files outside
+  the root and install from the repository lockfile. Workflow routes are generated
+  by `withWorkflow`; do not remove that configuration.
+- Preview wildcard: attached to the web deployment, with a separate origin.
+- Customer apps: dedicated managed projects created by explicit Publish actions.
 
-The `dev`, `dev:tui`, and `dev:verbose` scripts already clear `.eve` and
-`.output` before launching. They also clear `.workflow-data` so stale local
-workflow runs cannot try to resume against a deleted Eve workflow cache.
+Provision services, apply migrations, configure Clerk membership, and pass
+hosted acceptance on staging before requesting production rollout. Production
+rollout has not been performed by adding this implementation.
 
-## Test And Validate
+The existing tagged release workflow packages repository source. Read
+`CONTRIBUTING.md` and `SECURITY.md` before changing trust boundaries.
 
-Run everything CI runs:
+## Deferred capabilities
 
-```bash
-pnpm run ci
-```
+Shared/team projects, billing, uploads, direct code editing, visual page editing,
+GitHub synchronization, custom customer domains, and user-owned Vercel accounts
+are outside this release. Source inspection and ZIP export are supported.
 
-Individual commands:
-
-```bash
-pnpm run audit
-pnpm run typecheck
-pnpm run build
-pnpm run smoke
-```
-
-What they do:
-
-- `audit`: critical production dependency audit
-- `typecheck`: TypeScript validation with `tsgo`
-- `build`: Eve discovery and production build
-- `smoke`: static checks for expected files, model env mapping, and subagent-call discipline
-- `ci`: audit, typecheck, build, and smoke
-
-## Deployment Behavior
-
-Generated app deployment happens from inside the Eve sandbox:
-
-1. `deploy_to_vercel` runs in `/workspace/generated-app`.
-2. It uses `VERCEL_TOKEN` from the Eveable runtime environment.
-3. It passes selected server-only env vars through Vercel CLI `-e` and `-b` flags.
-4. It parses the Vercel deployment URL.
-5. It verifies deployment readiness with `vercel inspect`.
-
-If `VERCEL_TOKEN` is missing, Eveable reports a blocked deployment with the exact configuration required. It does not invent deployment URLs.
-
-When testing deployment manually, remember that `.env.local` is an application
-env file, not a shell profile. Either start Eveable with `pnpm run dev`, which
-loads it for the runtime, or source it before direct CLI tests:
-
-```bash
-set -a
-source .env.local
-set +a
-vercel whoami --token "$VERCEL_TOKEN"
-```
-
-## Release Notes
-
-### v1.0.0
-
-- Introduced Eveable as an Eve-powered alternative to Lovable.
-- Added durable session entrypoint through `/eve/v1/session` and `/eve/v1/session/:sessionId/stream`.
-- Added multi-agent pipeline: intent, conversation, orchestrator, design research, code writer, autofix, and security review.
-- Added human approval checkpoint before code generation through Eve's built-in `ask_question`.
-- Added sandbox-first generated app writes under `/workspace/generated-app`.
-- Added finite quality command validation, preview startup, preview health check, security review, Vercel deployment, and URL verification.
-- Added role-based model selection with environment overrides.
-- Added CI and release workflows for audit, typecheck, Eve build, smoke checks, packaging, artifact upload, and GitHub releases.
-- Added optional Refero MCP design inspiration for the design research subagent.
-
-## Release Workflow
-
-The release workflow lives in `.github/workflows/release.yml`.
-
-It supports:
-
-- automatic releases when tags matching `v*` are pushed
-- manual `workflow_dispatch` releases
-- environment-specific packages: `development`, `staging`, or `production`
-- source archive generation through `scripts/package-release.sh`
-- GitHub release creation or update
-
-Create a production release locally:
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-The workflow packages the repository and uses this README as the release notes source.
-
-## Contributing
-
-Read `CONTRIBUTING.md` before opening issues or pull requests.
-
-Good first contribution areas:
-
-- improve generated app quality plans
-- add safer deployment adapters
-- improve design research guidance
-- add tests around sandbox command normalization
-- improve documentation for live Eve sessions
-
-## Security
-
-Read `SECURITY.md` before reporting vulnerabilities.
-
-Important security expectations:
-
-- never commit secrets
-- never write real secrets into generated apps
-- keep generated files constrained to `/workspace/generated-app`
-- keep broad shell/file tools disabled by default
-- treat deployment and external side effects as sensitive
-
-## Known Limitations
-
-- Eve is in preview, so public APIs can change.
-- Live agent testing requires model credentials and can incur usage.
-- Eveable intentionally keeps generated apps inside the sandbox unless the Vercel deployment tool succeeds.
-- The current Eve/provider combination has had issues with optional subagent `outputSchema` in this workflow, so Eveable keeps shared Zod schemas for developers while asking subagents for JSON text through `message`.
-
-## License
-
-MIT. See `LICENSE`.
+MIT license. See `LICENSE`.

@@ -1,3 +1,9 @@
+import {
+  projectOperation,
+  readManifest,
+  recordManifest,
+} from "../lib/project.js";
+import { canonicalSource } from "@eveable/core/artifacts";
 import { defineTool } from "eve/tools";
 import { z } from "zod";
 import { GeneratedFileSchema } from "../lib/schemas.js";
@@ -14,7 +20,11 @@ export default defineTool({
     resetWorkspace: z.boolean().default(true),
   }),
   async execute({ files, resetWorkspace }, ctx) {
+    const operation = await projectOperation(ctx, true);
+    canonicalSource(files);
     const sandbox = await ctx.getSandbox();
+    const previous = await readManifest(sandbox);
+    if (operation?.op.baseVersionId) resetWorkspace = false;
 
     if (resetWorkspace) {
       await sandbox.removePath({
@@ -31,6 +41,10 @@ export default defineTool({
       });
     }
 
+    await recordManifest(sandbox, [
+      ...(resetWorkspace ? [] : previous),
+      ...files.map((file) => file.path),
+    ]);
     return {
       agent: "sandbox" as const,
       status: "ready_for_review" as const,
@@ -41,7 +55,7 @@ export default defineTool({
       notes: [
         "Generated files were written under /workspace/generated-app.",
         "This is not a completed build; run_quality_commands must run next.",
-        "A public URL is created later by deploy_to_vercel after validation, preview, and security review pass.",
+        "A public URL requires a separately confirmed Publish action after saving a verified source version.",
       ],
       nextRequiredTool: "run_quality_commands" as const,
     };

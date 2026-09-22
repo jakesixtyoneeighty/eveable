@@ -1,6 +1,6 @@
 # Contributing To Eveable
 
-Thanks for helping improve Eveable. This project is an Eve-powered AI app builder, so changes should preserve the core guarantee: generated apps are planned, approved, validated, previewed, security-reviewed, deployed, and verified before the agent calls them complete.
+Thanks for helping improve Eveable. This project is an Eve-powered AI app builder, so changes should preserve the core guarantee: generated apps are planned, approved, validated, previewed, security-reviewed, and saved before calling them ready to preview. Publishing is a separate authenticated action.
 
 ## Development Setup
 
@@ -65,7 +65,9 @@ pnpm run smoke
 - Preserve the design approval checkpoint before code generation.
 - Preserve source readback before security review.
 - Preserve autofix loops for build, preview, security, and deployment failures.
-- Preserve Vercel URL verification before final "deployed" summaries.
+- Preserve Vercel URL verification before reporting published status.
+- Keep deployment tokens out of generated sandboxes.
+- Require server-side membership and project ownership on every web and runtime operation.
 
 ## Subagent Rules
 
@@ -113,3 +115,26 @@ Useful bug reports include:
 - Node.js and pnpm versions
 
 Never include secrets, API keys, tokens, private user data, or generated app credentials in issues.
+
+## Web workspace development
+
+The Next.js application is in `apps/web`; shared server code is in
+`packages/core`. Keep runtime orchestration in `agent`. Use `pnpm web:dev` in a
+second terminal next to `pnpm dev`. Follow the frontend art-direction skill for
+visually significant changes, with the established light studio workspace.
+
+Run `pnpm ci`, `pnpm web:ci`, `pnpm test:integration`, and `pnpm web:e2e` before
+handoff. Browser fixtures are isolated in `tests/ui`; never add fake project
+records or test-auth bypasses to production routes. Hosted tests are explicitly
+opt-in, cost money, and require a dedicated staging account.
+
+Drizzle schema changes require checked-in SQL migrations. Generate with
+`pnpm exec drizzle-kit generate`; apply only to the intended database with
+`pnpm db:migrate`. Runtime and web share the same application database and Blob
+store within one environment. Do not reuse production secrets in tests.
+
+Preserve user and provider trust boundaries when adding tools: an authenticated
+server operation is distinct from the model's plan. Tests must verify denied
+cross-user access, replayed approvals, stale version publication, and revoked
+membership. Treat ambiguous external writes as uncertain, not as successful or
+safe to duplicate. Provider errors and raw tool outputs must not reach browsers.

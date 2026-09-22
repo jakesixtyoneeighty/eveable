@@ -267,4 +267,22 @@ if (process.exitCode) {
   process.exit(process.exitCode);
 }
 
-console.log("smoke: Eveable project structure, release version, and model config look good.");
+
+
+// Web trust and workflow contracts supplement the original builder contracts.
+for (const path of [
+  "apps/web/package.json", "packages/core/src/schema.ts", "packages/core/src/operations.ts",
+  "packages/core/src/preview.ts", "packages/core/src/publish.ts", "agent/tools/apply_project_changes.ts",
+  "agent/tools/load_project_source.ts", "agent/tools/save_project_version.ts",
+]) if (!existsSync(join(root, path))) fail(`missing workspace implementation ${path}`);
+const channel = readFileSync(join(root, "agent/channels/eve.ts"), "utf8");
+if (channel.includes("placeholderAuth") || channel.includes("vercelOidc(")) fail("web runtime must not bypass project ownership");
+for (const contract of ["save_project_version", "apply_project_changes", "Never deploy automatically"])
+  if (!instructions.includes(contract)) fail(`missing approved frontend workflow contract ${contract}`);
+const deployTool = readFileSync(join(root, "agent/tools/deploy_to_vercel.ts"), "utf8");
+if (deployTool.includes("process.env.VERCEL_TOKEN") || deployTool.includes("sandbox.run")) fail("agent deployment tool must not execute privileged deployment commands");
+for (const key of ["DATABASE_URL", "CLERK_SECRET_KEY", "EVEABLE_RUNTIME_SECRET", "EVEABLE_PREVIEW_SECRET", "PREVIEW_ORIGIN"])
+  if (!envSample.includes(key)) fail(`env.sample must document ${key}`);
+
+if (process.exitCode) process.exit(process.exitCode);
+console.log("smoke: Eveable runtime and authenticated workspace contracts look good.");

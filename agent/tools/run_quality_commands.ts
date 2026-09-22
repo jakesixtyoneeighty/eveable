@@ -72,7 +72,7 @@ export default defineTool({
       previewPort: qualityPlan.previewPort,
       notes: [
         "Quality validation passed.",
-        "Run start_preview next before read_generated_files, security_review, or deploy_to_vercel.",
+        "Run start_preview next before read_generated_files, security_review, or save_project_version.",
       ],
       nextRequiredTool: "start_preview" as const,
       nextAgent: "security_review" as const,
