@@ -30,8 +30,8 @@ update the affected documentation in the same change.
 - Node.js: `>=24 <27`; CI runs Node 24.
 - Package manager: pnpm `11.5.0`.
 - Module system: ESM with TypeScript `NodeNext`.
-- Runtime framework: `eve@0.11.4` in the lockfile (`^0.11.4` in `package.json`).
-- AI SDK: `ai@7.0.0-beta.178`, deliberately pinned through dependency,
+- Runtime framework: `eve@0.18.0`, exactly pinned in both root and web manifests.
+- AI SDK: `ai@7.0.0`, deliberately pinned through dependency,
   override, and resolution entries.
 - Validation: Zod `4.4.3`.
 - Type checking: `tsgo` from `@typescript/native-preview`.

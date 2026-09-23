@@ -6,3 +6,11 @@ node_modules
 .output
 .nitro
 dist
+**/node_modules
+**/.env*
+**/.next
+**/.swc
+**/*.tsbuildinfo
+apps/web/src/app/.well-known
+playwright-report
+test-results

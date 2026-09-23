@@ -50,7 +50,7 @@ a durable reconciliation job replays missed events.
 
 - Node.js `>=24 <27` (CI uses Node 24)
 - pnpm `11.5.0`
-- Eve `0.11.4` and AI SDK `7.0.0-beta.178` remain pinned in the lockfile
+- Eve `0.18.0` and AI SDK `7.0.0` are pinned in the lockfile
 - Clerk, Neon Postgres, private Vercel Blob, Vercel Sandbox, and a managed Vercel team
 
 Install with `pnpm install --frozen-lockfile`. Do not use npm to manage this repository.
@@ -231,6 +231,13 @@ live sign-in, sandbox availability, or deployment success.
 
 ## Deployment and release
 
+Vercel rejects Eve versions below `0.18.0`, including when the web application
+only imports `eve/client`. Changing the Root Directory does not avoid this
+check. Keep the root and `apps/web` Eve versions identical. Eve `0.18.0` requires
+a stable AI SDK 7 peer, so the root dependency, override, and resolution are
+pinned together to `7.0.0`.
+
+
 - Runtime: root directory `.`, `pnpm build`, Eve runtime output.
 - Web: root directory `apps/web`, Next.js build; include workspace files outside
   the root and install from the repository lockfile. Workflow routes are generated
@@ -238,9 +245,30 @@ live sign-in, sandbox availability, or deployment success.
 - Preview wildcard: attached to the web deployment, with a separate origin.
 - Customer apps: dedicated managed projects created by explicit Publish actions.
 
+For the separate runtime project, select the **Eve** framework preset, Node 24,
+repository root, `pnpm install --frozen-lockfile`, and `pnpm build`. Deploy source
+on Vercel so Eve emits its hosted Workflow functions and provisions any sandbox
+templates. A local Node build is not the hosted deployment artifact.
+
+Set the runtime variables from the configuration table above. The runtime and
+web must use the same database, private Blob store, and `EVEABLE_RUNTIME_SECRET`.
+Use the runtime's stable production alias for the web project's
+`EVE_RUNTIME_ORIGIN`, then redeploy the web project to load the new value.
+The stable alias must be reachable by the web server without an interactive
+Vercel login; Standard Protection can protect preview/deployment URLs while
+application authorization protects the production session routes. Do not add
+an unrestricted OIDC or anonymous fallback to the Eve channel.
+
+Verify `/eve/v1/health` returns ready, anonymous session creation returns 401,
+invalid authorization returns 403, and a signed-in workspace chat completes
+through the durable workflow. A healthy HTTP endpoint alone does not verify
+model calls, event persistence, sandbox generation, or embedded previews.
+
 Provision services, apply migrations, configure Clerk membership, and pass
-hosted acceptance on staging before requesting production rollout. Production
-rollout has not been performed by adding this implementation.
+hosted acceptance on staging before a general production rollout. The current
+owner-authorized web/runtime deployment and chat smoke results are recorded in
+`FRONTEND_ACCEPTANCE.md`; full build, preview, and publishing acceptance remains
+pending.
 
 The existing tagged release workflow packages repository source. Read
 `CONTRIBUTING.md` and `SECURITY.md` before changing trust boundaries.

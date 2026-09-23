@@ -44,6 +44,16 @@ for (const file of requiredFiles) {
 }
 
 const pkg = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
+// Vercel validates Eve even when only eve/client is traced into the web app.
+const webPkg = JSON.parse(readFileSync(join(root, "apps/web/package.json"), "utf8"));
+const installedEve = JSON.parse(readFileSync(join(root, "node_modules/eve/package.json"), "utf8")).version;
+const [eveMajor, eveMinor] = installedEve.split(".").map(Number);
+if (!Number.isInteger(eveMajor) || !Number.isInteger(eveMinor) || (eveMajor === 0 && eveMinor < 18)) {
+  fail(`Vercel requires Eve 0.18.0 or later; found ${installedEve}`);
+}
+if (pkg.dependencies.eve !== webPkg.dependencies.eve || pkg.dependencies.eve !== installedEve) {
+  fail("runtime and frontend must pin the same installed Eve version");
+}
 if (pkg.version !== "1.0.0") {
   fail(`expected package version 1.0.0, got ${pkg.version}`);
 }

@@ -1,8 +1,9 @@
 # Frontend delivery and acceptance
 
-The implementation is in this checkout. Hosted acceptance is **pending**, and
-production rollout has not been performed. Do not treat locally passing tests
-as proof that the configured providers work together.
+The implementation is in this checkout. The web and agent runtime are deployed,
+and authenticated chat has passed a hosted smoke check. Full hosted acceptance
+is **pending**. Do not treat deployment or locally passing tests as proof that
+generated builds, previews, restoration, or publishing work end to end.
 
 ## Implemented surfaces
 
@@ -27,7 +28,7 @@ as proof that the configured providers work together.
 | Database integration | 15 tests against disposable PostgreSQL with real migrations and queries; Blob, Sandbox, deployment responses, and Clerk identity are mocked |
 | Browser | Six Chromium desktop/mobile tests using the actual components with fixture APIs; screenshots inspected |
 | Local production server | Setup screen returns 200; unconfigured protected API denies access; direct gateway path on builder host returns 404 |
-| Dependencies | Frozen lockfile install; Eve 0.11.4 and AI SDK 7.0.0-beta.178 retained |
+| Dependencies | Frozen lockfile install; Eve 0.18.0 and stable AI SDK 7.0.0 pinned for Vercel compatibility |
 
 Integration coverage includes membership/revocation/ownership, concurrent and
 repeated submissions, quota admission, durable approval replay, exact Eve
@@ -40,7 +41,65 @@ contracts. This is not exhaustive adversarial or hosted acceptance.
 The critical audit passes. Eight noncritical advisories remain (three high,
 four moderate, one low). The newly introduced Drizzle dependency was updated
 to its security patch. The remaining upstream dependencies need review before
-production; the pinned Eve/AI SDK versions were not changed.
+production; the Eve/AI SDK version upgrade is described below.
+
+## Vercel deployment compatibility
+
+The frontend deployment from `apps/web` previously compiled successfully but
+Vercel rejected its output because it traced `eve@0.11.4`. Both application
+manifests now pin Eve `0.18.0`; stable AI SDK `7.0.0` satisfies its peer contract.
+The smoke check prevents an older or mismatched Eve installation.
+
+A source deployment using the configured production environment, with custom
+domain promotion skipped, reached **Ready**:
+`dpl_CeYnEDCg3ti58FHpee5wSUFLGtR7`. Using the authenticated Vercel CLI to pass
+Deployment Protection, the landing page returned 200 and displayed sign-in;
+`/api/projects` rejected an anonymous application caller with 401.
+This proves the hosted version rejection is resolved. It does not establish
+Clerk sign-in, database migrations/membership, a live agent session, embedded
+preview, or generated-app publishing. The custom domain has not been promoted
+to this candidate. No runtime project was deployed as part of that initial check.
+
+## Hosted agent connection — September 22, 2026
+
+At the owner's request, the separate `eveable-runtime` Vercel project was created
+with the Eve preset, Node 24, repository-root build, hosted Workflow output,
+OIDC enabled, and production runtime credentials. Its stable origin is
+`https://eveable-runtime.vercel.app`; deployment
+`dpl_G4b9JgFTTDGnqUuowXY2K9i4CUdy` reached Ready. Standard Deployment Protection
+guards generated deployment/preview URLs; the stable production API enforces
+Eveable's signed, project-scoped authorization.
+
+The web project's production `EVE_RUNTIME_ORIGIN` was updated and the existing
+web source redeployed as `dpl_8NvwweFFniuqFXYhbW9Wc5hrPzei`. Its aliases include
+`https://build.sixtyoneeighty.dev` and the isolated preview wildcard.
+
+Verified against hosted services:
+
+- Runtime health returned 200/ready; anonymous dispatch returned 401.
+- Invalid tokens, signed requests without an owned project, cross-user streams,
+  unprovisioned-user streams, and mismatched session paths returned 403.
+- Through the owner's signed-in Chrome session, a chat-only connection check
+  created a project, dispatched through the web Workflow, ran the intent and
+  conversation subagents, and displayed an assistant reply.
+- The operation was recorded as completed, its active project lock cleared,
+  and the session remained waiting for input. Neon held 14 safe activity rows
+  and a replay cursor of 29. Reloading the browser preserved the conversation.
+- The test project remains in the owner's history as
+  `Deployment connection check: say hello in one short`.
+
+Actual provider usage: the check used real Vercel Workflow and AI Gateway calls
+to `openai/gpt-5.4-mini`. Agent Runs reported root usage of 26,080 input tokens,
+178 output tokens, and 14,848 cached input tokens; subagent usage is reported
+separately by the provider. Billed cost was not measured. Runtime logs contained
+AI SDK `propertyNames` schema compatibility warnings, with successful HTTP
+responses and a completed chat operation. No generated build, preview, Blob
+archive, or customer-app release was exercised by this check.
+
+Runtime CI was rerun and passed. The runtime was deployed from the local working
+tree; the earlier SDK/package/documentation changes still need to be committed
+before relying on Git-based deployments. The Clerk application remains a
+restricted development instance; this is not a production Clerk cutover.
 
 ## Hosted gates still required
 
@@ -69,8 +128,9 @@ in that test additionally requires `E2E_ALLOW_PUBLISH=true`. The broader matrix
 above still needs authenticated hosted acceptance; one happy-path test is not
 that entire matrix.
 
-No live model, sandbox, Blob, or publishing calls were used for the reported
-checks. Actual billed provider usage has not been measured.
+The local and mocked checks above used no live providers. The hosted chat check
+did use live models and Workflow, as reported separately above. Full generated
+build, sandbox/preview, Blob artifact, and publishing acceptance remains pending.
 
 ## Adapter boundaries
 
