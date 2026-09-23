@@ -37,6 +37,8 @@ import {
   executeTerminalCommand,
 } from "@eveable/core/terminal-runtime";
 const mocks = vi.hoisted(() => ({
+  channelEvents: undefined as
+    import("eve/channels/eve").EveChannelEvents | undefined,
   source: "",
   artifacts: new Map<string, string>(),
   runner: { mkDir: vi.fn(), writeFiles: vi.fn(), runCommand: vi.fn() },
@@ -51,6 +53,16 @@ const mocks = vi.hoisted(() => ({
   },
   user: "user_a",
 }));
+vi.mock("eve/channels/eve", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("eve/channels/eve")>();
+  return {
+    ...actual,
+    eveChannel: (config: Parameters<typeof actual.eveChannel>[0]) => {
+      mocks.channelEvents = config.events;
+      return actual.eveChannel(config);
+    },
+  };
+});
 vi.mock("@vercel/blob", () => ({
   get: vi.fn(async (path: string) => ({
     statusCode: 200,
@@ -499,6 +511,79 @@ suite("Postgres-backed access, operations, and provider adapters", () => {
       )?.status,
     ).toBe("published");
   });
+  it.each(["approve", "stop"])(
+    "resumes %s using the token persisted by real channel events",
+    async (optionId) => {
+      await import("../agent/channels/eve");
+      const { createSendFn } =
+        await import("../node_modules/eve/dist/src/channel/send.js");
+      const { RuntimeNoActiveSessionError } =
+        await import("../node_modules/eve/dist/src/execution/runtime-errors.js");
+      const op = await admitOperation("user_a", a, crypto.randomUUID(), {
+        kind: "message",
+        message: "Design a site",
+      });
+      const hooks = new Set<string>();
+      const deliver = vi.fn(
+        async ({ continuationToken }: { continuationToken: string }) => {
+          if (!hooks.has(continuationToken))
+            throw new RuntimeNoActiveSessionError(continuationToken);
+          return { sessionId: "channel-session" };
+        },
+      );
+      const runtime = {
+        deliver,
+        run: vi.fn(
+          async ({ continuationToken }: { continuationToken: string }) => {
+            hooks.add(continuationToken);
+            const emit = async (type: "turn.started" | "session.waiting") => {
+              const handler = mocks.channelEvents![type] as Function;
+              await handler(
+                {},
+                { continuationToken },
+                {
+                  session: {
+                    id: "channel-session",
+                    auth: { current: { attributes: { operationId: op.id } } },
+                  },
+                },
+              );
+            };
+            await emit("turn.started");
+            await emit("session.waiting");
+            return { sessionId: "channel-session" };
+          },
+        ),
+      };
+      // Exercise Eve 0.18's actual namespace handling, rather than a mocked Client.
+      const send = createSendFn(
+        runtime as unknown as Parameters<typeof createSendFn>[0],
+        {},
+        "eve",
+      );
+      const response = await send("Design a site", {
+        continuationToken: "eve:fixture",
+        auth: null,
+      });
+      const saved = await database().query.sessions.findFirst({
+        where: eq(sessions.id, "channel-session"),
+      });
+      await expect(
+        send(
+          {
+            message: optionId,
+            inputResponses: [{ requestId: "approval", optionId }],
+          },
+          {
+            continuationToken: saved!.continuationToken,
+            auth: null,
+          },
+        ),
+      ).resolves.toMatchObject({ id: response.id });
+      expect(saved!.continuationToken).toBe(response.continuationToken);
+      expect(runtime.run).toHaveBeenCalledTimes(1);
+    },
+  );
   it("retains Eve continuation tokens and sends the exact approval through the dispatch guard", async () => {
     vi.stubEnv(
       "EVEABLE_RUNTIME_SECRET",

@@ -46,6 +46,14 @@ project metadata and safe projections. Continuation tokens never reach browser
 code. Runtime event handlers persist progress even after the browser closes;
 a durable reconciliation job replays missed events.
 
+Persist the channel-local HTTP continuation token: Eve event callbacks expose
+an additional outer `eve:` namespace, which the runtime removes once before
+storage. Sending that internal namespace back through the HTTP client would
+prevent design approvals, including Stop, from resuming the existing session.
+Redeploying does not repair previously corrupted sessions or clear operation
+locks. Recovery must confirm their workflows are stopped before releasing locks;
+archive an abandoned project and start a new one rather than reusing its token.
+
 ## Requirements
 
 - Node.js `>=24 <27` (CI uses Node 24)

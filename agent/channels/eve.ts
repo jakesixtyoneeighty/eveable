@@ -80,6 +80,10 @@ for (const type of eventNames)
         where: eq(operations.id, operationId),
       });
       if (!op) return;
+      // Event callbacks expose the runtime's namespaced token. The HTTP client
+      // must store the channel-local token: Eve adds this outer prefix on send.
+      // Remove exactly one prefix, preserving any prefix in the raw token itself.
+      const continuationToken = channel.continuationToken.replace(/^eve:/, "");
       if (type === "turn.started") {
         await database().transaction(async (tx) => {
           await tx
@@ -87,12 +91,12 @@ for (const type of eventNames)
             .values({
               id: ctx.session.id,
               projectId: op.projectId,
-              continuationToken: channel.continuationToken,
+              continuationToken,
             })
             .onConflictDoUpdate({
               target: sessions.id,
               set: {
-                continuationToken: channel.continuationToken,
+                continuationToken,
                 status: "streaming",
               },
             });
@@ -114,7 +118,7 @@ for (const type of eventNames)
       await persistEvent(
         ctx.session.id,
         { type, data },
-        channel.continuationToken,
+        continuationToken,
       );
     },
   });

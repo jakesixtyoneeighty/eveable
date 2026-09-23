@@ -87,11 +87,20 @@ Validation: runtime CI (audit, typecheck, build, smoke), web CI (lint, shared/we
 typechecks, 42 unit tests, production build), 44 Postgres integration tests, and
 16 desktop/mobile browser fixture tests passed.
 
-This increment has not been deployed. Apply `pnpm db:migrate` to the intended
-environment before rollout. Live Sandbox/Workflow acceptance remains required for
+The production web deployment includes the Terminal UI and API. On September 23,
+2026, the missing `0002_gifted_black_tom.sql` migration was tested on a temporary
+Neon branch copied from production, then applied to production through the
+authenticated SQL editor. The checked-in migration statements and their Drizzle
+journal entry were applied atomically. Readback verified both tables (13 terminal
+columns and 12 command columns), four foreign keys, five indexes including primary
+keys, and the matching migration hash. The authenticated production Terminal GET
+returned HTTP 200, and the workspace Terminal panel finished loading without a
+database error. Other environments still require `pnpm db:migrate` before rollout.
+
+Live Sandbox/Workflow acceptance remains required for
 installation, non-root execution, streaming, network isolation, background-process
-cleanup, Stop and scheduled expiry. No hosted-provider, billing, or production
-migration claim follows from local checks. Interactive TTY and editing saved source
+cleanup, Stop and scheduled expiry. The database rollout and successful read do not
+establish hosted command execution or billing acceptance. Interactive TTY and editing saved source
 through terminal commands remain outside this increment.
 
 ## Vercel deployment compatibility
