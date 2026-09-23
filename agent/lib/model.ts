@@ -22,19 +22,25 @@ const fromEnv = (keys: string | readonly string[], fallback: string) => {
 export const eveableModels = {
   root: fromEnv(
     ["EVEABLE_ROOT_MODEL", "MAYAR_ROOT_MODEL"],
-    "openai/gpt-5.4-mini",
+    "anthropic/claude-opus-5.5",
   ),
-  intent: fromEnv("INTENT_AGENT_MODEL", "openai/gpt-5.4-mini"),
-  orchestrator: fromEnv("ORCHESTRATOR_AGENT_MODEL", "openai/gpt-5.4-mini"),
+  intent: fromEnv("INTENT_AGENT_MODEL", "google/gemini-3.8-flash"),
+  orchestrator: fromEnv(
+    "ORCHESTRATOR_AGENT_MODEL",
+    "anthropic/claude-opus-5.5",
+  ),
   designResearch: fromEnv(
     "DESIGN_RESEARCH_AGENT_MODEL",
-    "openai/gpt-5.4-mini",
+    "anthropic/claude-fable-5.1",
   ),
-  codeWriter: fromEnv("CODE_WRITER_AGENT_MODEL", "openai/gpt-5.4"),
-  autofix: fromEnv("AUTOFIX_AGENT_MODEL", "openai/gpt-5.4-mini"),
+  codeWriter: fromEnv("CODE_WRITER_AGENT_MODEL", "openai/gpt-6-sol"),
+  autofix: fromEnv("AUTOFIX_AGENT_MODEL", "anthropic/claude-opus-5.5"),
   securityReview: fromEnv(
     "SECURITY_REVIEW_AGENT_MODEL",
-    "openai/gpt-5.4-mini",
+    "openai/gpt-6-astra",
   ),
-  conversation: fromEnv("CONVERSATION_AGENT_MODEL", "openai/gpt-5.4-mini"),
+  conversation: fromEnv(
+    "CONVERSATION_AGENT_MODEL",
+    "anthropic/claude-sonnet-5",
+  ),
 } satisfies Record<EveableModelRole, string>;
