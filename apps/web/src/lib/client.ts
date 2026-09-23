@@ -94,6 +94,7 @@ export function statusLabel(status: string) {
         awaiting_approval: "Your approval needed",
         preview_available: "Ready to preview",
         starting_preview: "Starting preview",
+        validating_code: "Checking code changes",
         publishing: "Publishing",
         published: "Published",
         failed: "Needs attention",

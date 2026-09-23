@@ -66,6 +66,10 @@ async function route(request: Request, context: Context) {
     }
   }
   const project = await owned(z.uuid().parse(path[0]));
+  if (path[1] === "terminals") {
+    const { terminalRoute } = await import("@/lib/terminal-routes");
+    return terminalRoute(request, path, project.ownerId, project.id);
+  }
   if (path.length === 1) {
     if (request.method === "PATCH") {
       const input = z
@@ -144,10 +148,44 @@ async function route(request: Request, context: Context) {
   }
   if (
     path[1] === "operations" &&
+    path.length === 3 &&
+    request.method === "GET"
+  ) {
+    const op = await db.query.operations.findFirst({
+      where: and(
+        eq(operations.id, z.uuid().parse(path[2])),
+        eq(operations.projectId, project.id),
+      ),
+    });
+    if (!op) throw new AppError(404, "not_found", "Operation not found.");
+    const version =
+      op.status === "completed" && op.kind === "code_edit"
+        ? await db.query.versions.findFirst({
+            where: and(
+              eq(versions.operationId, op.id),
+              eq(versions.projectId, project.id),
+            ),
+          })
+        : null;
+    return json({
+      id: op.id,
+      status: op.status,
+      error: op.error,
+      version: version ? publicVersion(version) : null,
+    });
+  }
+  if (
+    path[1] === "operations" &&
     path.length === 2 &&
     request.method === "POST"
   ) {
-    const input = operationSchema.parse(await body(request));
+    const data = await body(request, 3_000_000);
+    const input = operationSchema.parse(data);
+    if (
+      input.kind !== "code_edit" &&
+      Buffer.byteLength(JSON.stringify(data)) > 24000
+    )
+      throw new AppError(413, "too_large", "Request is too large.");
     const op = await admitOperation(
       project.ownerId,
       project.id,

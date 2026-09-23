@@ -8,7 +8,7 @@ generated builds, previews, restoration, or publishing work end to end.
 ## Implemented surfaces
 
 - Separate Next.js workspace with project home, resizable chat/preview, mobile
-  tabs, exact approval choices, source inspection, exports, version history,
+  tabs, exact approval choices, code editing, source inspection, exports, version history,
   restoration confirmation, and version-specific publishing confirmation.
 - Clerk identity plus active Postgres membership, ownership checks, operator
   membership commands, same-origin writes, and short-lived scoped runtime auth.
@@ -24,9 +24,9 @@ generated builds, previews, restoration, or publishing work end to end.
 | Gate | Evidence |
 | --- | --- |
 | Runtime CI | Audit at the repository's critical threshold, strict typecheck, Eve build, and smoke contracts |
-| Web CI | ESLint, core/web typechecks, 36 unit tests, Next.js production build |
-| Database integration | 15 tests against disposable PostgreSQL with real migrations and queries; Blob, Sandbox, deployment responses, and Clerk identity are mocked |
-| Browser | Six Chromium desktop/mobile tests using the actual components with fixture APIs; screenshots inspected |
+| Web CI | ESLint, core/web typechecks, 38 unit tests, Next.js production build |
+| Database integration | 27 tests against disposable PostgreSQL with real migrations and queries; Blob, Sandbox, deployment responses, and Clerk identity are mocked |
+| Browser | Twelve Chromium desktop/mobile tests using the actual components with fixture APIs; screenshots inspected |
 | Local production server | Setup screen returns 200; unconfigured protected API denies access; direct gateway path on builder host returns 404 |
 | Dependencies | Frozen lockfile install; Eve 0.18.0 and stable AI SDK 7.0.0 pinned for Vercel compatibility |
 
@@ -42,6 +42,57 @@ The critical audit passes. Eight noncritical advisories remain (three high,
 four moderate, one low). The newly introduced Drizzle dependency was updated
 to its security patch. The remaining upstream dependencies need review before
 production; the Eve/AI SDK version upgrade is described below.
+
+## Code editor increment — local acceptance
+
+Preview/Code/Versions retain the existing workspace design. The lazy-loaded
+CodeMirror editor supports existing-file changes, syntax highlighting, search,
+undo, changed-file markers, revert confirmation, and version-scoped drafts.
+Switching files/tabs preserves drafts; switching tabs preserves the preview DOM.
+Save & Preview sends only changed files with the exact base version/hash. Failure
+retains drafts; a newer saved version locks the stale draft and offers latest-code
+inspection. Historical versions remain read-only. Browser drafts are memory-only;
+leaving/reloading discards them. The separate Terminal increment is described below.
+
+Database/provider-fixture tests cover private draft storage, idempotency, limits,
+stale and foreign versions, unsafe paths, unchanged saves, pending approval,
+install/typecheck/build/health/readback/security failures, membership revocation,
+atomic version/preview capture, and subsequent AI edits inheriting the new version.
+A local subprocess test exercises actual source hashing and symlink refusal.
+Desktop/mobile component tests exercise edit/undo/search, tab and file switching,
+save failure/retry/success, and concurrent-version handling. Screenshots of both
+editor layouts were inspected.
+
+This increment has not been deployed. Live Blob/Sandbox validation and hosted
+iframe refresh after a manual save remain required. The checks above do not prove
+provider-backed manual editing or billing. No schema migration or new secrets are
+needed. No production settings or deployments were changed for this increment.
+
+## Terminal increment — local acceptance
+
+Preview/Code/Terminal/Versions occupy the existing preview pane. Terminal supports
+explicit start, command entry, bounded output, exit status, history/reuse, Stop,
+reconnect polling, input retention and idempotent retries. Switching tabs retains
+editor drafts and terminal input. Desktop/mobile fixture screenshots were inspected;
+both layouts fit the viewport and output is rendered as inert text.
+
+A temporary saved-version sandbox is separate from editor drafts and the preview.
+Database/provider-fixture tests exercise admission locks, request identity,
+ownership/origin, current-version checks, limits, dependency setup, network policy,
+non-root command dispatch, output filtering, nonzero exits, timeout, overflow,
+process cleanup, cancellation, uncertain replay, revocation and retained cleanup
+slots. Disposable Postgres tests apply the new terminal migration.
+
+Validation: runtime CI (audit, typecheck, build, smoke), web CI (lint, shared/web
+typechecks, 42 unit tests, production build), 44 Postgres integration tests, and
+16 desktop/mobile browser fixture tests passed.
+
+This increment has not been deployed. Apply `pnpm db:migrate` to the intended
+environment before rollout. Live Sandbox/Workflow acceptance remains required for
+installation, non-root execution, streaming, network isolation, background-process
+cleanup, Stop and scheduled expiry. No hosted-provider, billing, or production
+migration claim follows from local checks. Interactive TTY and editing saved source
+through terminal commands remain outside this increment.
 
 ## Vercel deployment compatibility
 

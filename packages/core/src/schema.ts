@@ -154,3 +154,53 @@ export const deployments = pgTable(
   },
   (t) => [uniqueIndex("deployment_operation").on(t.operationId)],
 );
+
+export const terminals = pgTable(
+  "terminals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => members.userId),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => versions.id),
+    key: text("idempotency_key").notNull(),
+    status: text("status").notNull().default("queued"),
+    sandboxName: text("sandbox_name"),
+    workflowId: text("workflow_id"),
+    activeCommandId: uuid("active_command_id"),
+    commandCount: integer("command_count").notNull().default(0),
+    error: text("error"),
+    expiresAt: time("expires_at").notNull(),
+    createdAt: time("created_at").notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("terminal_request").on(t.projectId, t.key),
+    index("terminal_owner_time").on(t.ownerId, t.createdAt),
+  ],
+);
+
+export const terminalCommands = pgTable(
+  "terminal_commands",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    terminalId: uuid("terminal_id")
+      .notNull()
+      .references(() => terminals.id),
+    key: text("idempotency_key").notNull(),
+    command: text("command").notNull(),
+    status: text("status").notNull().default("queued"),
+    workflowId: text("workflow_id"),
+    output: text("output").notNull().default(""),
+    exitCode: integer("exit_code"),
+    error: text("error"),
+    createdAt: time("created_at").notNull().defaultNow(),
+    startedAt: time("started_at"),
+    finishedAt: time("finished_at"),
+  },
+  (t) => [uniqueIndex("terminal_command_request").on(t.terminalId, t.key)],
+);

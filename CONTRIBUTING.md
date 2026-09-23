@@ -123,7 +123,7 @@ The Next.js application is in `apps/web`; shared server code is in
 second terminal next to `pnpm dev`. Follow the frontend art-direction skill for
 visually significant changes, with the established light studio workspace.
 
-Run `pnpm ci`, `pnpm web:ci`, `pnpm test:integration`, and `pnpm web:e2e` before
+Run `pnpm run ci`, `pnpm web:ci`, `pnpm test:integration`, and `pnpm web:e2e` before
 handoff. Browser fixtures are isolated in `tests/ui`; never add fake project
 records or test-auth bypasses to production routes. Hosted tests are explicitly
 opt-in, cost money, and require a dedicated staging account.
@@ -138,3 +138,40 @@ server operation is distinct from the model's plan. Tests must verify denied
 cross-user access, replayed approvals, stale version publication, and revoked
 membership. Treat ambiguous external writes as uncertain, not as successful or
 safe to duplicate. Provider errors and raw tool outputs must not reach browsers.
+
+### Code editor changes
+
+`code-panel.tsx` owns version-scoped browser drafts; `code-editor.tsx` loads
+CodeMirror on demand and retains per-file undo state. Preview and Code surfaces
+stay mounted while hidden. Keep failed and stale drafts available to the user.
+Manual saves are the `code_edit` operation in shared admission and execute bounded
+phases through `packages/core/src/code-edit.ts` and the web Workflow. Generated
+source stays in private Blob archives; only references/hashes enter operation
+records. The final transaction captures the verified version and preview together.
+The agent tool and manual validator share `packages/core/src/source-review.ts`.
+Use `pnpm run ci` explicitly: `pnpm ci` is the package manager's clean-install
+command. Manual editor validation requires the database and browser acceptance
+suites, including stale versions, duplicate saves, failure retention, and revoked
+membership. Mocked Sandbox/Blob responses are not hosted acceptance.
+
+### Terminal changes
+
+The Terminal tab is backed by `packages/core/src/terminal.ts` (admission, locks,
+DTOs and cleanup), `terminal-runtime.ts` (sandbox execution), and
+`terminal-output.ts` (command/output boundaries). The web routes dispatch durable
+Workflow jobs; the startup workflow schedules expiry. `terminals` and
+`terminal_commands` require migration `0002_gifted_black_tom.sql`.
+
+Keep terminal execution separate from the agent sandbox and saved source. Stop
+and every provider call that can create/resume/dispatch share a terminal row lock.
+Claim a command before dispatch; a replay with uncertain execution closes the
+session rather than repeating shell side effects. Run as the dedicated `runner`
+user, clear its environment, kill remaining runner processes before releasing the
+command slot, and stop the sandbox on abnormal completion. Unconfirmed cleanup
+must retain the slot. Never add platform secrets or public ports.
+
+Run `pnpm run ci`, `pnpm run web:ci`, `pnpm test:integration`, and `pnpm web:e2e`.
+Integration tests apply migrations to disposable Postgres and mock provider
+responses. Hosted acceptance must separately verify non-root execution, deny-all
+networking, dependency installation, streaming, Stop, expiry, and process cleanup
+using dedicated staging credentials. Do not treat local tests as that evidence.

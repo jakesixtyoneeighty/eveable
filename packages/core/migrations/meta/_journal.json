@@ -15,6 +15,13 @@
       "when": 1790115718895,
       "tag": "0001_chemical_marten_broadcloak",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790126653836,
+      "tag": "0002_gifted_black_tom",
+      "breakpoints": true
     }
   ]
 }

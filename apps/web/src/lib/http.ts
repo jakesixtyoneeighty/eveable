@@ -28,10 +28,27 @@ export async function handled(fn: () => Promise<Response>) {
     );
   }
 }
-export async function body(request: Request) {
-  const text = await request.text();
-  if (Buffer.byteLength(text) > 24000)
-    throw new AppError(413, "too_large", "Request is too large.");
+export async function body(request: Request, limit = 24000) {
+  const reader = request.body?.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  if (reader) {
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > limit) {
+          await reader.cancel();
+          throw new AppError(413, "too_large", "Request is too large.");
+        }
+        chunks.push(value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  const text = Buffer.concat(chunks).toString("utf8");
   try {
     return JSON.parse(text) as unknown;
   } catch {

@@ -9,7 +9,6 @@ import {
   Check,
   ChevronDown,
   Code2,
-  Download,
   Eye,
   History,
   LoaderCircle,
@@ -20,6 +19,7 @@ import {
   Plus,
   RotateCcw,
   Smartphone,
+  TerminalSquare,
   Upload,
   X,
 } from "lucide-react";
@@ -35,7 +35,8 @@ import {
 } from "@/lib/client";
 import { Brand } from "./home";
 import { Dialog } from "./ui/dialog";
-type File = { path: string; content: string };
+import { CodePanel } from "./code-panel";
+import { TerminalPanel } from "./terminal-panel";
 export default function Workspace({ id }: { id: string }) {
   const router = useRouter();
   const [state, setState] = useState<ProjectState | null>(null);
@@ -48,9 +49,11 @@ export default function Workspace({ id }: { id: string }) {
   const [connected, setConnected] = useState(true);
   const [mobile, setMobile] = useState(false);
   const [tab, setTab] = useState("preview");
-  const [panel, setPanel] = useState<"source" | "versions" | null>(null);
-  const [files, setFiles] = useState<File[]>([]);
-  const [filePath, setFilePath] = useState("");
+  const [panel, setPanel] = useState<"source" | "versions" | "terminal" | null>(
+    null,
+  );
+  const [terminalOpened, setTerminalOpened] = useState(false);
+  const [codeVersion, setCodeVersion] = useState<Version | null>(null);
   const [selectedVersion, setSelectedVersion] = useState<Version | null>(null);
   const [confirm, setConfirm] = useState<"publish" | "restore" | null>(null);
   const [chatWidth, setChatWidth] = useState(34);
@@ -170,20 +173,10 @@ export default function Workspace({ id }: { id: string }) {
       setNotes("");
     }
   }
-  async function source(version: Version) {
+  function source(version: Version) {
     setTab("preview");
     selectPanel("source");
-    setSelectedVersion(version);
-    setFiles([]);
-    try {
-      const data = await api<{ files: File[] }>(
-        `/${id}/versions/${version.id}`,
-      );
-      setFiles(data.files);
-      setFilePath(data.files[0]?.path ?? "");
-    } catch (e) {
-      setError((e as Error).message);
-    }
+    setCodeVersion(version);
   }
   const openPreview = useCallback(
     async (external = false) => {
@@ -217,18 +210,10 @@ export default function Workspace({ id }: { id: string }) {
     [id, state],
   );
   const loadedPreview = useRef("");
-  function selectPanel(next: "source" | "versions" | null) {
+  function selectPanel(next: "source" | "versions" | "terminal" | null) {
     setPanel(next);
-    if (next) {
-      loadedPreview.current = "";
-      setFrameReady(false);
-    }
   }
   useEffect(() => {
-    if (panel) {
-      loadedPreview.current = "";
-      return;
-    }
     if (
       state?.preview?.status === "ready" &&
       loadedPreview.current !== state.preview.id
@@ -236,7 +221,7 @@ export default function Workspace({ id }: { id: string }) {
       loadedPreview.current = state.preview.id;
       void openPreview();
     }
-  }, [state?.preview, openPreview, panel]);
+  }, [state?.preview, openPreview]);
   async function startPreview() {
     if (current) {
       setFrameReady(false);
@@ -564,10 +549,21 @@ export default function Workspace({ id }: { id: string }) {
               <button
                 disabled={!current}
                 className={panel === "source" ? "selected" : ""}
-                onClick={() => current && void source(current)}
+                onClick={() => current && source(codeVersion ?? current)}
               >
                 <Code2 size={15} />
-                Source
+                Code
+              </button>
+              <button
+                aria-label="Terminal"
+                className={panel === "terminal" ? "selected" : ""}
+                onClick={() => {
+                  setTerminalOpened(true);
+                  selectPanel("terminal");
+                }}
+              >
+                <TerminalSquare size={15} />
+                <span>Terminal</span>
               </button>
               <button
                 className={panel === "versions" ? "selected" : ""}
@@ -613,135 +609,121 @@ export default function Workspace({ id }: { id: string }) {
               </button>
             </div>
           </div>
-          {panel === "versions" ? (
-            versionsPanel
-          ) : panel === "source" ? (
-            <div className="source-panel">
-              <div className="source-header">
-                <span>{selectedVersion?.summary}</span>
-                {selectedVersion && (
-                  <a
-                    className="text-button"
-                    href={`/api/projects/${id}/versions/${selectedVersion.id}/export`}
-                  >
-                    <Download size={14} />
-                    Download code
-                  </a>
-                )}
+          {panel === "versions" && versionsPanel}
+          {terminalOpened && (
+            <div className="code-container" hidden={panel !== "terminal"}>
+              <TerminalPanel
+                id={id}
+                current={current}
+                blocked={working || !!project?.archived}
+              />
+            </div>
+          )}
+          {codeVersion && state && (
+            <div className="code-container" hidden={panel !== "source"}>
+              <CodePanel
+                id={id}
+                version={codeVersion}
+                state={state}
+                busy={working}
+                selectVersion={setCodeVersion}
+                onSaved={(version) => {
+                  setCodeVersion(version);
+                  setPanel(null);
+                  void refresh().catch((e: Error) => setError(e.message));
+                }}
+              />
+            </div>
+          )}
+          <div className="preview-canvas" hidden={panel !== null}>
+            <div className={`browser-frame ${mobile ? "mobile-frame" : ""}`}>
+              <div className="browser-bar">
+                <span className="browser-dots">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+                <span>{frameReady ? project?.name : "Your next version"}</span>
+                <span className="browser-secure">PREVIEW</span>
               </div>
-              <div className="source-body">
-                <nav aria-label="Source files">
-                  {files.map((f) => (
-                    <button
-                      key={f.path}
-                      className={filePath === f.path ? "active" : ""}
-                      onClick={() => setFilePath(f.path)}
-                    >
-                      {f.path}
-                    </button>
-                  ))}
-                </nav>
-                <pre tabIndex={0}>
-                  <code>
-                    {files.find((f) => f.path === filePath)?.content ??
-                      "Loading source…"}
-                  </code>
-                </pre>
+              <div className="frame-content">
+                <iframe
+                  ref={frame}
+                  name={`preview-${id}`}
+                  title="Generated application preview"
+                  sandbox="allow-scripts allow-same-origin allow-forms"
+                  referrerPolicy="no-referrer"
+                  className={frameReady ? "" : "hidden-frame"}
+                />
+                {!frameReady && (
+                  <div className="preview-empty">
+                    <div className="empty-symbol" aria-hidden="true">
+                      <span />
+                      <span />
+                      <span />
+                    </div>
+                    <span className="eyebrow">
+                      {current
+                        ? "YOUR IDEA, TAKING SHAPE"
+                        : "A LITTLE SPACE FOR SOMETHING NEW"}
+                    </span>
+                    <h2>
+                      {current
+                        ? "Ready for a closer look."
+                        : "This is where it comes to life."}
+                    </h2>
+                    <p>
+                      {current
+                        ? "Your checked and saved version is ready to open."
+                        : "Describe your idea in chat. Once you approve the design, your working website will appear here."}
+                    </p>
+                    {current && (
+                      <button
+                        className="primary-button"
+                        disabled={working}
+                        onClick={() => void startPreview()}
+                      >
+                        {working ? (
+                          <LoaderCircle size={15} className="spin" />
+                        ) : (
+                          <Play size={15} />
+                        )}{" "}
+                        {state?.preview?.status === "expired"
+                          ? "Restart preview"
+                          : "Start preview"}
+                      </button>
+                    )}
+                    <span className="preview-caption">
+                      {current
+                        ? "A private preview. Publishing is a separate step."
+                        : "DESIGN → APPROVE → BUILD → PREVIEW"}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
-          ) : (
-            <div className="preview-canvas">
-              <div className={`browser-frame ${mobile ? "mobile-frame" : ""}`}>
-                <div className="browser-bar">
-                  <span className="browser-dots">
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                  <span>
-                    {frameReady ? project?.name : "Your next version"}
-                  </span>
-                  <span className="browser-secure">PREVIEW</span>
-                </div>
-                <div className="frame-content">
-                  <iframe
-                    ref={frame}
-                    name={`preview-${id}`}
-                    title="Generated application preview"
-                    sandbox="allow-scripts allow-same-origin allow-forms"
-                    referrerPolicy="no-referrer"
-                    className={frameReady ? "" : "hidden-frame"}
-                  />
-                  {!frameReady && (
-                    <div className="preview-empty">
-                      <div className="empty-symbol" aria-hidden="true">
-                        <span />
-                        <span />
-                        <span />
-                      </div>
-                      <span className="eyebrow">
-                        {current
-                          ? "YOUR IDEA, TAKING SHAPE"
-                          : "A LITTLE SPACE FOR SOMETHING NEW"}
-                      </span>
-                      <h2>
-                        {current
-                          ? "Ready for a closer look."
-                          : "This is where it comes to life."}
-                      </h2>
-                      <p>
-                        {current
-                          ? "Your checked and saved version is ready to open."
-                          : "Describe your idea in chat. Once you approve the design, your working website will appear here."}
-                      </p>
-                      {current && (
-                        <button
-                          className="primary-button"
-                          disabled={working}
-                          onClick={() => void startPreview()}
-                        >
-                          {working ? (
-                            <LoaderCircle size={15} className="spin" />
-                          ) : (
-                            <Play size={15} />
-                          )}{" "}
-                          {state?.preview?.status === "expired"
-                            ? "Restart preview"
-                            : "Start preview"}
-                        </button>
-                      )}
-                      <span className="preview-caption">
-                        {current
-                          ? "A private preview. Publishing is a separate step."
-                          : "DESIGN → APPROVE → BUILD → PREVIEW"}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {state?.preview?.versionId &&
-                current &&
-                state.preview.versionId !== current.id && (
-                  <button
-                    className="update-preview"
-                    disabled={working}
-                    onClick={() => void startPreview()}
-                  >
-                    A newer version is saved. Open latest preview{" "}
-                    <ArrowUpRight size={14} />
-                  </button>
-                )}
-              {state?.preview?.status === "expired" && frameReady && (
+            {state?.preview?.versionId &&
+              current &&
+              state.preview.versionId !== current.id && (
                 <button
                   className="update-preview"
                   disabled={working}
                   onClick={() => void startPreview()}
                 >
-                  Preview expired. Restart <RotateCcw size={14} />
+                  A newer version is saved. Open latest preview{" "}
+                  <ArrowUpRight size={14} />
                 </button>
               )}
-            </div>
-          )}
+            {state?.preview?.status === "expired" && frameReady && (
+              <button
+                className="update-preview"
+                disabled={working}
+                onClick={() => void startPreview()}
+              >
+                Preview expired. Restart <RotateCcw size={14} />
+              </button>
+            )}
+          </div>
           <footer className="build-strip">
             <span className={`status-dot ${working ? "working" : ""}`} />
             <span>{statusLabel(project?.status ?? "waiting")}</span>

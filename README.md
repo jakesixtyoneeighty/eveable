@@ -2,7 +2,7 @@
 
 Eveable is an open-source, Lovable-style website builder built on Vercel Eve.
 Its web workspace lets invited members discuss a design, approve a build or
-edit, inspect saved source versions, open an isolated preview, and explicitly
+edit, edit code, inspect saved source versions, open an isolated preview, and explicitly
 publish a version to Vercel. Generated Next.js applications are outputs, not the
 source of Eveable's own frontend.
 
@@ -187,10 +187,68 @@ project, save managed versions, or deploy from inside the sandbox.
 Repair loops remain bounded. A failed change retains the previous saved version.
 The preview, current saved version, and published version are separate concepts.
 
+## Code editor
+
+The preview pane has **Preview**, **Code**, **Terminal**, and **Versions** tabs. Code edits
+existing text files with syntax highlighting, search (Cmd/Ctrl+F), undo, and
+changed-file markers. File and tab switching retain drafts and undo history;
+the preview iframe stays mounted. Older versions are read-only. Drafts stay in
+browser memory until saved; reloading or leaving discards them after the browser
+warning. Download exports the saved version, not the unsaved draft.
+
+**Save & Preview** explicitly authorizes the submitted changes against the exact
+current version/hash. A private draft archive is checked in a separate sandbox:
+dependency installation with lifecycle scripts disabled, TypeScript, Next.js
+build, internal HTTP health, source readback, and the shared deterministic
+security review. Success atomically creates a new immutable version and its
+private preview, then opens Preview. Later AI edits load that saved version.
+Publishing remains a separate action.
+
+A failed check leaves the previous saved version and preview intact. The editor
+retains the draft and identifies the failed stage. If another tab saves a newer
+version, the stale draft remains available for comparison but cannot overwrite
+it; open the latest code and reapply the desired changes. Saves are blocked while
+an operation or design approval is pending and share the daily build limit.
+Requests are limited to 3 MB of changed files (including JSON encoding), within
+the existing 10 MB source archive limit. New/deleted files are outside the editor increment. No database migration or new environment
+variables are required; hosted Save & Preview requires the existing private Blob
+and Sandbox configuration. The workflow validates manually authored code without
+calling a model or automatically modifying it.
+
+## Terminal
+
+The Terminal tab runs shell commands in a temporary copy of the latest saved
+version. Start it explicitly, enter a command, and use Run or Enter. Output,
+exit status, command reuse, and Up/Down history stay available when switching
+tabs; editor drafts and the preview stay mounted. Stop terminal ends the whole
+session, including any running command. A fresh terminal loads the latest saved
+code. The UI indicates when a newer version is available.
+
+Files persist between commands within that terminal only. Terminal changes do
+not update Code, saved versions, previews, or publishing. Each command starts in
+the project directory with a clean shell environment; interactive input, TTY
+programs, public server ports, and network access are unavailable. Dependencies
+are installed during setup with lifecycle scripts disabled. Use Code and
+Save & Preview for changes you want to keep.
+
+Limits are one open terminal per account, one running command, ten starts per
+UTC day, 20 commands per terminal, two minutes per command, 64 KB combined output
+per command, and a 15-minute terminal lifetime. Terminal requests are idempotent;
+uncertain dispatches are never automatically replayed. If cleanup cannot be
+confirmed, Retry Stop retains the account slot until termination is confirmed.
+Output is plain text, stripped of terminal control sequences and filtered for
+known secret patterns. Do not enter credentials in commands.
+
+Apply the checked-in `0002_gifted_black_tom.sql` migration with
+`pnpm db:migrate` before enabling this version. Terminal sessions and bounded
+command history are private database records; they survive browser reconnects.
+This uses the existing Workflow, Blob, and Sandbox configuration, with no new
+secrets. Provider-backed acceptance remains separate from local fixture tests.
+
 ## Limits and recovery
 
 Defaults: one active modifying operation per project, one active build/edit per
-user, 20 new message/restore starts per user per UTC day, and 10 publish starts
+user, 20 new message/restore/manual-code starts per user per UTC day, and 10 publish starts
 per day. Message admission is counted before intent classification, so normal
 chat also consumes a start. Approval continuations do not consume another start.
 Limits are configurable and are not dollar-spend guarantees.
@@ -209,7 +267,7 @@ and update its record. This command does not initiate another deployment.
 ## Validation
 
 ```bash
-pnpm ci                 # production audit + runtime typecheck/build + smoke
+pnpm run ci             # production audit + runtime typecheck/build + smoke
 pnpm web:ci             # frontend lint/typecheck + unit tests + web build
 pnpm test:integration   # disposable local Postgres, real queries, mocked providers
 pnpm web:e2e            # desktop/mobile browser tests using component/API fixtures
@@ -275,7 +333,7 @@ The existing tagged release workflow packages repository source. Read
 
 ## Deferred capabilities
 
-Shared/team projects, billing, uploads, direct code editing, visual page editing,
+Shared/team projects, billing, uploads, an interactive TTY, visual page editing,
 GitHub synchronization, custom customer domains, and user-owned Vercel accounts
 are outside this release. Source inspection and ZIP export are supported.
 

@@ -3,6 +3,18 @@ export async function runOperation(id: string) {
   "use workflow";
   try {
     const kind = await operationKind(id);
+    if (kind === "code_edit") {
+      for (const phase of [
+        "prepare",
+        "install",
+        "typecheck",
+        "build",
+        "verify",
+      ] as const) {
+        if (!(await editCode(id, phase))) return;
+      }
+      return;
+    }
     if (kind === "preview") {
       await buildPreview(id);
       return;
@@ -23,6 +35,27 @@ export async function runOperation(id: string) {
     throw new Error("Run timed out.");
   } catch {
     await fail(id);
+  }
+}
+async function editCode(
+  id: string,
+  phase: "prepare" | "install" | "typecheck" | "build" | "verify",
+) {
+  "use step";
+  const { runCodeEditPhase, failCodeEdit } =
+    await import("@eveable/core/code-edit");
+  const { AppError } = await import("@eveable/core/errors");
+  try {
+    await runCodeEditPhase(id, phase);
+    return true;
+  } catch (error) {
+    await failCodeEdit(
+      id,
+      error instanceof AppError
+        ? error.message
+        : "Code validation could not complete. Your draft and last saved version are unchanged. Try Save & Preview again.",
+    );
+    return false;
   }
 }
 async function operationKind(id: string) {
@@ -66,6 +99,14 @@ async function fail(id: string) {
   if (op?.kind === "publish") {
     const { failRelease } = await import("@eveable/core/publish");
     await failRelease(id);
+    return;
+  }
+  if (op?.kind === "code_edit") {
+    const { failCodeEdit } = await import("@eveable/core/code-edit");
+    await failCodeEdit(
+      id,
+      "Code validation timed out. Your draft and last saved version are unchanged.",
+    );
     return;
   }
   const { finishOperation } = await import("@eveable/core/operations");

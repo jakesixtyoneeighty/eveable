@@ -11,6 +11,12 @@ import {
   type ApprovalRequest,
 } from "@eveable/core/schema";
 import { AppError } from "@eveable/core/errors";
+import {
+  canonicalSource,
+  readArtifact,
+  saveArtifact,
+  sourceSchema,
+} from "@eveable/core/artifacts";
 export const operationSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("message"),
@@ -24,6 +30,12 @@ export const operationSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("restore"), versionId: z.uuid() }),
   z.object({ kind: z.literal("preview"), versionId: z.uuid() }),
+  z.object({
+    kind: z.literal("code_edit"),
+    versionId: z.uuid(),
+    hash: z.string().regex(/^[a-f0-9]{64}$/),
+    files: sourceSchema,
+  }),
   z.object({
     kind: z.literal("publish"),
     versionId: z.uuid(),
@@ -63,6 +75,9 @@ export async function admitOperation(
   key: string,
   input: OperationInput,
 ) {
+  input = operationSchema.parse(input);
+  const edits =
+    input.kind === "code_edit" ? canonicalSource(input.files) : null;
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(key))
     throw new AppError(
       400,
@@ -93,8 +108,14 @@ export async function admitOperation(
     });
     if (existing) {
       if (
-        JSON.stringify(operationSchema.parse(existing.payload)) !==
-        JSON.stringify(operationSchema.parse(input))
+        input.kind === "code_edit"
+          ? existing.kind !== "code_edit" ||
+            existing.payload.versionId !== input.versionId ||
+            existing.payload.hash !== input.hash ||
+            existing.payload.requestHash !== edits?.hash
+          : existing.kind === "code_edit" ||
+            JSON.stringify(operationSchema.parse(existing.payload)) !==
+              JSON.stringify(input)
       )
         throw new AppError(
           409,
@@ -153,11 +174,13 @@ export async function admitOperation(
       approved = label === "Approve and build";
     }
     if (input.kind === "restore") approved = true; // The explicit restore confirmation authorizes this exact archive.
+    if (input.kind === "code_edit") approved = true; // Save & Preview authorizes these exact file changes.
     const day = new Date();
     day.setUTCHours(0, 0, 0, 0);
     if (
       input.kind === "message" ||
       input.kind === "restore" ||
+      input.kind === "code_edit" ||
       input.kind === "approval"
     ) {
       const other = await tx.query.projects.findFirst({
@@ -173,7 +196,7 @@ export async function admitOperation(
           "Another project is already running.",
         );
     }
-    if (["message", "restore", "publish"].includes(input.kind)) {
+    if (["message", "restore", "code_edit", "publish"].includes(input.kind)) {
       const daily = await tx
         .select({ count: sql<number>`count(*)::int` })
         .from(operations)
@@ -183,7 +206,7 @@ export async function admitOperation(
             gte(operations.createdAt, day),
             input.kind === "publish"
               ? eq(operations.kind, "publish")
-              : sql`${operations.kind} in ('message','restore')`,
+              : sql`${operations.kind} in ('message','restore','code_edit')`,
           ),
         );
       const limit =
@@ -221,23 +244,58 @@ export async function admitOperation(
       });
       if (!version) throw new AppError(404, "not_found", "Version not found.");
       if (
-        input.kind === "publish" &&
+        (input.kind === "publish" || input.kind === "code_edit") &&
         (version.hash !== input.hash || project.currentVersionId !== version.id)
       )
         throw new AppError(
           409,
           "version_changed",
-          "The current version changed. Review it before publishing.",
+          "The current version changed. Open the latest version before continuing.",
         );
+    }
+    const operationId = crypto.randomUUID();
+    let payload: Record<string, unknown> = {
+      ...input,
+      ...(approvalLabel ? { approvalLabel } : {}),
+    };
+    if (input.kind === "code_edit" && version && edits) {
+      const original = await readArtifact(version);
+      const files = new Map(original.map((file) => [file.path, file]));
+      for (const file of edits.files) {
+        if (!files.has(file.path))
+          throw new AppError(
+            400,
+            "unknown_file",
+            "Only existing source files can be edited.",
+          );
+        files.set(file.path, file);
+      }
+      const candidate = canonicalSource([...files.values()]);
+      if (candidate.hash === version.hash)
+        throw new AppError(
+          400,
+          "unchanged",
+          "There are no source changes to save.",
+        );
+      // Keep source in private Blob storage, never in operation/activity records.
+      const draft = await saveArtifact(projectId, operationId, candidate.files);
+      payload = {
+        kind: input.kind,
+        versionId: input.versionId,
+        hash: input.hash,
+        requestHash: edits.hash,
+        draft,
+      };
     }
     const [op] = await tx
       .insert(operations)
       .values({
+        id: operationId,
         projectId,
         ownerId: userId,
         key,
         kind: input.kind,
-        payload: { ...input, ...(approvalLabel ? { approvalLabel } : {}) },
+        payload,
         approved,
         baseVersionId: project.currentVersionId,
         versionId: version?.id,
@@ -253,7 +311,9 @@ export async function admitOperation(
             ? "publishing"
             : input.kind === "preview"
               ? "starting_preview"
-              : "queued",
+              : input.kind === "code_edit"
+                ? "validating_code"
+                : "queued",
         updatedAt: new Date(),
       })
       .where(eq(projects.id, projectId));
@@ -263,15 +323,13 @@ export async function admitOperation(
         .set({ pending: null })
         .where(eq(sessions.id, session.id));
     if (input.kind === "publish" && version)
-      await tx
-        .insert(deployments)
-        .values({
-          projectId,
-          versionId: version.id,
-          operationId: op.id,
-          sourceHash: version.hash,
-          authorizedBy: userId,
-        });
+      await tx.insert(deployments).values({
+        projectId,
+        versionId: version.id,
+        operationId: op.id,
+        sourceHash: version.hash,
+        authorizedBy: userId,
+      });
     return op;
   });
 }
