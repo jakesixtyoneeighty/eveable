@@ -3,6 +3,6 @@ import { eveableModels } from "../../lib/model.js";
 
 export default defineAgent({
   description:
-    "Writes complete Next.js, TypeScript, App Router, Bun project files from approved design research. Tool input must contain only message.",
+    "Returns only a compact ImplementationSpec for supported approved new builds, or a blocked result. Never returns source files. Tool input must contain only message.",
   model: eveableModels.codeWriter,
 });

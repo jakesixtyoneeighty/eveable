@@ -60,7 +60,7 @@ env.sample                         Canonical environment-variable template
 
 Important pipeline tools:
 
-- `generate_next_app_from_spec.ts`: deterministic Next.js generation fast path.
+- `generate_next_app_from_spec.ts`: model-backed Next.js source generation from the approved spec.
 - `run_quality_commands.ts`: finite validation commands only.
 - `start_preview.ts`: preview startup and HTTP health check.
 - `read_generated_files.ts`: source readback before review.
@@ -103,7 +103,7 @@ Preserve these invariants:
 1. Every non-approval request calls `intent` first and waits for its result.
 2. Root-to-subagent payloads contain exactly one key: `message`.
 3. Build requests pass through design research and explicit user approval before generation.
-4. Normal one-page sites use `generate_next_app_from_spec`; `code_writer` is for complex, non-standard apps and returns a compact `ImplementationSpec`, not source blobs.
+4. Normal one-page sites use `generate_next_app_from_spec` for bespoke model-generated source; `code_writer` is for complex, non-standard apps and returns a compact `ImplementationSpec`, not source blobs.
 5. Generated writes stay under the safe relative workspace `generated-app`.
 6. Validation commands are finite; preview/server commands run only through the preview tool.
 7. Completion order is quality checks, healthy internal preview, source readback, deterministic security review, then immutable version capture. Publishing is separate.

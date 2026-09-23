@@ -14,7 +14,7 @@ import {
 
 export default defineTool({
   description:
-    "Write a complete generated app file set into the Eve sandbox under /workspace/generated-app. Use this after generate_next_app_from_spec returns files. After this tool succeeds, the root agent must immediately call run_quality_commands with the generated quality plan.",
+    "Write actual source contents into /workspace/generated-app. For repairs to a new build, pass only changed files with resetWorkspace:false to preserve other files. Never write generator manifest entries with empty contents. Use apply_project_changes for saved-base edits. Run run_quality_commands next.",
   inputSchema: z.object({
     files: z.array(GeneratedFileSchema).min(1),
     resetWorkspace: z.boolean().default(true),

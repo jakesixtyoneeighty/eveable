@@ -10,13 +10,7 @@ export const IntentDecisionSchema = z.object({
   severity: z.enum(["low", "medium", "high", "critical"]),
   reason: z.string(),
   nextAgent: z
-    .enum([
-      "conversation",
-      "orchestrator",
-      "repair",
-      "validation",
-      "none",
-    ])
+    .enum(["conversation", "orchestrator", "repair", "validation", "none"])
     .nullable(),
 });
 
@@ -119,33 +113,66 @@ export const GeneratedFileSchema = z.object({
   purpose: z.string(),
 });
 
+// The public handoff stays a design/content spec. Source is produced privately
+// inside the generator, never by the CodeWriter subagent.
 export const ImplementationSpecSchema = z.object({
   agent: z.literal("code_writer"),
   status: z.enum(["spec_ready", "blocked"]),
-  message: z.string(),
-  brandName: z.string(),
-  projectSlug: z.string(),
-  brief: z.string(),
-  audience: z.string(),
-  visualDirection: z.string(),
-  sections: z.array(
-    z.object({
-      name: z.string(),
-      purpose: z.string(),
-      copy: z.string(),
-    }),
-  ),
+  message: z.string().max(1200),
+  brandName: z.string().max(160),
+  projectSlug: z.string().max(80),
+  brief: z.string().max(8000),
+  audience: z.string().max(1200),
+  visualDirection: z.string().max(8000),
+  sections: z
+    .array(
+      z.object({
+        name: z.string().max(160),
+        purpose: z.string().max(1000),
+        copy: z.string().max(4000),
+      }),
+    )
+    .max(24),
   palette: z.object({
-    primary: z.string(),
-    accent: z.string(),
-    background: z.string(),
-    foreground: z.string(),
+    primary: z.string().max(120),
+    accent: z.string().max(120),
+    background: z.string().max(120),
+    foreground: z.string().max(120),
   }),
-  imageUrls: z.array(z.string()).default([]),
+  imageUrls: z.array(z.string().url().max(2000)).max(20).default([]),
+  language: z.string().min(2).max(80).default("en"),
+  pages: z
+    .array(
+      z.object({
+        path: z.string().regex(/^\/(?:[a-z0-9-]+(?:\/[a-z0-9-]+)*)?$/),
+        title: z.string().min(1).max(160),
+        purpose: z.string().min(1).max(1200),
+      }),
+    )
+    .min(1)
+    .max(12)
+    .default([{ path: "/", title: "Home", purpose: "Primary experience" }]),
+  interactions: z.array(z.string().max(1200)).max(24).default([]),
+  constraints: z.array(z.string().max(1200)).max(24).default([]),
+  designTokens: DesignResearchResultSchema.shape.designSpec.optional(),
   handoff: z.object({
     nextTool: z.literal("generate_next_app_from_spec"),
-    reason: z.string(),
+    reason: z.string().max(1200),
   }),
+});
+
+// Bounded model output; configuration and commands remain runtime-owned.
+export const GeneratedApplicationSourceSchema = z.object({
+  files: z
+    .array(
+      GeneratedFileSchema.extend({
+        path: z.string().min(1).max(240),
+        content: z.string().min(1).max(38_000),
+        purpose: z.string().min(1).max(240),
+      }),
+    )
+    .min(3)
+    .max(32),
 });
 
 export const GeneratedSourceSnapshotSchema = z.object({
@@ -169,7 +196,12 @@ export const QualityPlanSchema = z.object({
 
 export const GeneratedAppBundleSchema = z.object({
   agent: z.literal("app_generator"),
-  status: z.enum(["preview_ready", "validation_failed", "preview_failed"]),
+  status: z.enum([
+    "preview_ready",
+    "validation_failed",
+    "preview_failed",
+    "blocked",
+  ]),
   message: z.string(),
   sandboxId: z.string(),
   workspacePath: z.literal("generated-app"),
@@ -201,7 +233,14 @@ export const GeneratedAppBundleSchema = z.object({
     stderr: z.string(),
   }),
   notes: z.array(z.string()),
-  nextRequiredTool: z.enum(["read_generated_files", "autofix"]),
+  nextRequiredTool: z.enum(["read_generated_files", "autofix", "user_action"]),
+  generation: z
+    .object({
+      model: z.string(),
+      inputTokens: z.number().nullable(),
+      outputTokens: z.number().nullable(),
+    })
+    .optional(),
 });
 
 export const CodeWriterResultSchema = z.object({
@@ -263,7 +302,13 @@ export const SandboxCommandResultSchema = z.object({
 
 export const SandboxValidationResultSchema = z.object({
   agent: z.literal("sandbox"),
-  status: z.enum(["not_started", "running", "blocked", "build_failed", "ready_for_review"]),
+  status: z.enum([
+    "not_started",
+    "running",
+    "blocked",
+    "build_failed",
+    "ready_for_review",
+  ]),
   sandboxId: z.string(),
   workspacePath: z.literal("generated-app"),
   message: z.string(),
@@ -352,4 +397,6 @@ export type QualityPlan = z.infer<typeof QualityPlanSchema>;
 export type SandboxValidationResult = z.infer<
   typeof SandboxValidationResultSchema
 >;
-export type VercelDeploymentResult = z.infer<typeof VercelDeploymentResultSchema>;
+export type VercelDeploymentResult = z.infer<
+  typeof VercelDeploymentResultSchema
+>;

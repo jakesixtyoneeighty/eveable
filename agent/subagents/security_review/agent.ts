@@ -3,6 +3,6 @@ import { eveableModels } from "../../lib/model.js";
 
 export default defineAgent({
   description:
-    "Reviews generated web app source code after sandbox validation and before deployment. The message must include generated file contents, not only sandbox metadata.",
+    "Provides optional evidence-based source review after validation and preview; does not replace run_security_review. Tool input must contain only message, including source contents.",
   model: eveableModels.securityReview,
 });

@@ -64,7 +64,8 @@ pnpm run smoke
 - Keep `bash.ts` and `write_file.ts` disabled unless a change intentionally updates the trust model.
 - Preserve the design approval checkpoint before code generation.
 - Preserve source readback before security review.
-- Preserve autofix loops for build, preview, security, and deployment failures.
+- Preserve bounded autofix loops for build, preview, and security failures.
+  Publishing failures belong to the separate web publishing service.
 - Preserve Vercel URL verification before reporting published status.
 - Keep deployment tokens out of generated sandboxes.
 - Require server-side membership and project ownership on every web and runtime operation.
@@ -77,6 +78,25 @@ Each subagent lives under `agent/subagents/<name>/`.
 - `instructions.md` should describe only that subagent's responsibility.
 - Subagent tool calls from the root must use exactly one input key: `message`.
 - Shared output shapes should be documented in `agent/lib/schemas.ts`.
+- CodeWriter returns only `ImplementationSpec`; the legacy `CodeWriterResult`
+  declaration is not its active handoff. Do not reintroduce source-file or
+  quality-plan generation instructions into that specialist.
+- `agent/lib/app-generation.ts` owns the private structured source-generation
+  call and build scaffold. Do not reintroduce fixed page markup, industry copy,
+  styles, or stock imagery. Preserve approved page/design/interaction fields.
+- Generated source must pass schema, required-route, path, duplicate, size,
+  secret, and pre-execution security checks before workspace mutation. Recheck
+  operation approval after model generation; failed generation has no fallback.
+  Keep source-generation calls bounded and report provider errors without raw
+  output. Validate model output with fixtures separately from live acceptance.
+- Review prompt changes alongside model-facing tool descriptions and smoke
+  checks. Keep capability claims within the actual renderer and tool behavior.
+- Repairs require current source and return changed files only. New-build repair
+  writes must pass `resetWorkspace:false`; full-manifest readback still precedes
+  the deterministic security gate and version capture.
+- `pnpm run ci` verifies local runtime contracts, not model instruction adherence
+  or hosted behavior. Exercise representative build, edit, analysis, blocked-spec,
+  and repair conversations separately when running provider-backed acceptance.
 
 ## Tool Rules
 

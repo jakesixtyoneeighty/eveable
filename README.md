@@ -169,9 +169,24 @@ project, save managed versions, or deploy from inside the sandbox.
 2. Builds and edits pass through planning/design research and explicit approval:
    **Approve and build**, **Revise design**, or **Stop**. Refero MCP stays scoped
    to design research and is optional.
-3. New ordinary one-page sites use `generate_next_app_from_spec`. Complex build
-   requests use a compact CodeWriter ImplementationSpec; arbitrary full-stack
-   app generation is not promised.
+3. New ordinary one-page sites use `generate_next_app_from_spec`. CodeWriter
+   refines supported complex briefs into an `ImplementationSpec` only; it never
+   returns source files or a quality plan. A blocked spec must not be generated.
+   The generator makes one bounded structured-output call through AI Gateway,
+   using `CODE_WRITER_AGENT_MODEL`, for bespoke Next.js pages, components, and
+   CSS. It preserves approved content, language, design tokens, static routes,
+   interactions, and HTTPS assets; there is no visual template or stock-image
+   fallback. Only package/TypeScript/Next build infrastructure is supplied.
+   Generation supports up to 12 static pages and 32 application source files;
+   it does not provision additional packages, databases, auth, payments, or
+   external services. Missing prerequisites must be disclosed before approval.
+   Source is schema/path/secret checked and screened before sandbox execution.
+   A failed or incomplete model response leaves the workspace unchanged and
+   returns blocked; it never falls back to a template. Source generation has
+   a three-minute timeout, a 32,000 output-token ceiling, and no SDK retries.
+   It adds model usage even on the direct spec path. Tool results report usage
+   when available; local fixtures do not establish generation quality or cost.
+
 4. Edits read the saved source and apply changes to specified files. They do not
    regenerate the whole project or remove unrelated files.
 5. Generated writes stay under `/workspace/generated-app`. Broad `bash` and
@@ -184,7 +199,12 @@ project, save managed versions, or deploy from inside the sandbox.
    version/hash and a verified production URL. The agent deployment tool cannot
    use Vercel credentials or bypass this confirmation.
 
-Repair loops remain bounded. A failed change retains the previous saved version.
+Analysis requests remain read-only. Repairs use current source and return only
+changed files, preserve unrelated files, and rerun validation against the full
+source manifest. The optional model-backed security reviewer supplements the
+deterministic gate; incomplete source cannot establish a complete review.
+Repair loops remain bounded to four attempts per category across the operation,
+including version-save failures. A failed change retains the previous saved version.
 The preview, current saved version, and published version are separate concepts.
 
 ## Code editor

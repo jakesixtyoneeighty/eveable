@@ -36,10 +36,7 @@ export default defineTool({
       commandResults.push(normalizedResult);
       applyBuildStatus(buildStatus, command, normalizedResult.exitCode);
 
-      if (
-        normalizedResult.exitCode !== 0 &&
-        normalizedResult.exitCode !== null
-      ) {
+      if (normalizedResult.exitCode !== 0) {
         return {
           agent: "sandbox" as const,
           status: "build_failed" as const,
@@ -72,7 +69,7 @@ export default defineTool({
       previewPort: qualityPlan.previewPort,
       notes: [
         "Quality validation passed.",
-        "Run start_preview next before read_generated_files, security_review, or save_project_version.",
+        "Run start_preview next, then full read_generated_files, run_security_review, and save_project_version.",
       ],
       nextRequiredTool: "start_preview" as const,
       nextAgent: "security_review" as const,

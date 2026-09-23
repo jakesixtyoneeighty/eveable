@@ -210,3 +210,29 @@ and the active slot for Retry Stop; provider execution is still bounded by its
 own timeout. Dispatch uncertainty never grants an automatic command replay.
 Command text and bounded filtered output remain private database records; the
 terminal workspace itself is discarded. A new migration is required before rollout.
+
+
+## Model-generated application source
+
+The generator calls the configured code model inside the trusted Eve tool runtime,
+using AI Gateway authentication. Only the approved implementation spec is sent;
+platform credentials are not part of its prompt or returned source. CodeWriter
+continues to return a spec, not source. The generator validates bounded structured
+source, required routes, safe paths, duplicates, and credential filtering before
+any generated file write, and runs the shared deterministic source review before
+executing it. Missing or invalid output blocks instead of selecting a template.
+Approval and membership are checked before generation and again before mutation.
+
+Package manifests, dependency versions, build scripts, and TypeScript/Next config
+are runtime-owned. Application generation cannot replace them. Installation uses
+`--ignore-scripts`; platform InsForge credentials are no longer injected into
+sandbox commands. Generated client integrations require an explicitly designed
+service contract; generation does not provision service secrets. Existing sandbox
+network policy is unchanged. Static review does not make arbitrary generated code
+trusted: the sandbox, subsequent quality/preview/source checks, and immutable
+version verification remain required. Publishing remains a separate web action.
+
+One generation call has a three-minute timeout, a 32,000 output-token ceiling, and
+no SDK retries. Completed Eve steps replay their results; interrupted steps may
+rerun, so these limits are not an exactly-once billing or account cost guarantee.
+Provider failures expose a fixed safe message, never raw model output or errors.

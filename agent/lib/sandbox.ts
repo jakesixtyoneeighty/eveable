@@ -237,7 +237,7 @@ export function applyBuildStatus(
   command: string,
   exitCode: number | null,
 ): void {
-  const status = exitCode === 0 || exitCode === null ? "passed" : "failed";
+  const status = exitCode === 0 ? "passed" : "failed";
   const normalized = command.toLowerCase();
 
   if (normalized.includes("install")) {
@@ -317,8 +317,6 @@ function shouldSkipPackageScript(
 
 function withServerRuntimeEnv(command: string): string {
   const env: Record<string, string | undefined> = {
-    INSFORGE_API_BASE_URL: process.env.INSFORGE_API_BASE_URL,
-    INSFORGE_API_KEY: process.env.INSFORGE_API_KEY,
     NEXT_TELEMETRY_DISABLED: "1",
     CI: "true",
   };

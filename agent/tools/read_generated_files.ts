@@ -13,7 +13,7 @@ const maxFileChars = 40_000;
 
 export default defineTool({
   description:
-    "Read generated app source files back from /workspace/generated-app so security_review receives inspectable source code. Use this after preview passes and before calling security_review.",
+    "Read current source from /workspace/generated-app for diagnosis or repair, including before preview is healthy. For the completion gate, read the full source manifest after preview passes, then call run_security_review. Inspect missing files and truncation before using contents.",
   inputSchema: z.object({
     files: z.array(GeneratedFileSchema).min(1),
   }),

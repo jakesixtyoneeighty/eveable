@@ -3,6 +3,6 @@ import { eveableModels } from "../../lib/model.js";
 
 export default defineAgent({
   description:
-    "Repairs generated project files after sandbox failures or security findings. Tool input must contain only message.",
+    "Proposes minimal changed-file repairs from current source and failure evidence; the root applies and verifies them. Tool input must contain only message.",
   model: eveableModels.autofix,
 });

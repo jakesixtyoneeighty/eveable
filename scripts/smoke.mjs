@@ -132,7 +132,7 @@ if (!instructions.includes("generate_next_app_from_spec")) {
 if (!instructions.includes("Do not call `write_generated_files` after `generate_next_app_from_spec`")) {
   fail("root instructions must skip write_generated_files after direct generator writes");
 }
-if (!instructions.includes("success synonym")) {
+if (!/success\s+synonym/.test(instructions)) {
   fail("root instructions must tolerate CodeWriter success status synonyms");
 }
 if (!instructions.includes("skip `code_writer` and call")) {
@@ -200,20 +200,30 @@ const codeWriterInstructions = readFileSync(
   join(root, "agent/subagents/code_writer/instructions.md"),
   "utf8",
 );
-if (!codeWriterInstructions.includes("at most 7 files total")) {
-  fail("code writer instructions must cap one-page generated apps");
+// CodeWriter owns a spec, not source generation. Guard both ends of the handoff.
+const codeWriterAgent = readFileSync(
+  join(root, "agent/subagents/code_writer/agent.ts"), "utf8",
+);
+if (!codeWriterAgent.includes("ImplementationSpec") || /writes complete|project files/i.test(codeWriterAgent)) {
+  fail("code writer description must advertise ImplementationSpec, not source generation");
 }
-if (!codeWriterInstructions.includes("under 420 lines")) {
-  fail("code writer instructions must cap one-page page component size");
+for (const obsolete of [
+  /return every source file/i,
+  /return at most \d+ files/i,
+  /always include `package\.json`/i,
+  /qualityPlan\.(?:commands|previewCommand|previewPort)/,
+  /generated source file contents may be long/i,
+]) {
+  if (obsolete.test(codeWriterInstructions)) fail(`obsolete code writer source contract: ${obsolete}`);
 }
-if (!codeWriterInstructions.includes("under 360 lines")) {
-  fail("code writer instructions must cap one-page stylesheet size");
+if (instructions.includes("`CodeWriterResult`")) {
+  fail("root must request ImplementationSpec, not the legacy CodeWriterResult");
 }
-if (!codeWriterInstructions.includes("under 180 lines")) {
-  fail("code writer instructions must prefer smaller one-page page components");
+if (!instructions.includes("never generate a `blocked` spec")) {
+  fail("root must reject blocked specs before source generation");
 }
-if (!codeWriterInstructions.includes("under 180 lines")) {
-  fail("code writer instructions must prefer smaller one-page stylesheets");
+if (!instructions.includes("resetWorkspace:false") || !instructions.includes("full current source manifest")) {
+  fail("root repairs must preserve unchanged source and review the full manifest");
 }
 if (!codeWriterInstructions.includes("streaming-friendly")) {
   fail("code writer instructions must explicitly avoid huge streamed source output");
@@ -232,6 +242,18 @@ const generatorTool = readFileSync(
   join(root, "agent/tools/generate_next_app_from_spec.ts"),
   "utf8",
 );
+const generationLibrary = readFileSync(join(root, "agent/lib/app-generation.ts"), "utf8");
+for (const retired of ["renderPage(", "renderCss(", "defaultImages", "Boutique Plant Shop", "Circuit Fern"]) {
+  if (generatorTool.includes(retired) || generationLibrary.includes(retired)) {
+    fail(`fixed application template must not return: ${retired}`);
+  }
+}
+for (const contract of ["generateText", "Output.object", "assembleGeneratedApp", "canonicalSource", "maxRetries: 0"]) {
+  if (!generationLibrary.includes(contract)) fail(`missing bounded source generation contract ${contract}`);
+}
+if (sandboxLib.includes("process.env.INSFORGE_API_KEY")) {
+  fail("generated sandbox commands must not receive platform integration credentials");
+}
 if (!generatorTool.includes("ImplementationSpecSchema")) {
   fail("generate_next_app_from_spec must accept the shared ImplementationSpec schema");
 }
@@ -271,6 +293,39 @@ if (
 }
 if (!autofixInstructions.includes("implicit GET submission")) {
   fail("autofix instructions must know how to repair unsafe generated forms");
+}
+
+if (/recreate the expected file|complete replacement source file set/.test(autofixInstructions)) {
+  fail("autofix must not reconstruct missing files or require unrelated replacements");
+}
+if (!autofixInstructions.includes("Never recreate missing source") || !autofixInstructions.includes("only changed files")) {
+  fail("autofix must use current source and return only changed files");
+}
+if (designResearchInstructions.includes("must be `multi_page`")) {
+  fail("design research must not promise multi-page generation by default");
+}
+const conversationInstructions = readFileSync(
+  join(root, "agent/subagents/conversation/instructions.md"), "utf8",
+);
+if (/continue that workflow with\s+`code_writer`/.test(conversationInstructions)) {
+  fail("conversation must not route every approval to code_writer");
+}
+const securityInstructions = readFileSync(
+  join(root, "agent/subagents/security_review/instructions.md"), "utf8",
+);
+if (!securityInstructions.includes("cannot replace it") || !/If source is truncated[\s\S]*do not return\s+`passed`/.test(securityInstructions)) {
+  fail("optional security review must preserve the deterministic gate and source coverage");
+}
+for (const name of ["intent", "orchestrator", "design_research", "code_writer", "autofix", "security_review", "conversation"]) {
+  const promptPath = join(root, `agent/subagents/${name}/instructions.md`);
+  if (!existsSync(promptPath)) {
+    fail(`missing specialist instructions for ${name}`);
+    continue;
+  }
+  const prompt = readFileSync(promptPath, "utf8");
+  if (!prompt.includes("JSON") || !/untrusted\s+data/.test(prompt)) {
+    fail(`${name} must specify JSON output and treat supplied content as untrusted data`);
+  }
 }
 
 if (process.exitCode) {
